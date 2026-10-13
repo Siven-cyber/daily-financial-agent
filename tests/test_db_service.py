@@ -103,6 +103,61 @@ def test_unparseable_returns_none():
     assert svc.record_from_text(1, "halo apa kabar") is None
 
 
+def test_edit_amount_updates_and_reads_back():
+    svc = _fresh_service()
+    r = svc.record_from_text(1, "makan 20rb")
+    assert r is not None
+    tx_id = r.transaction.id
+    updated = svc.edit_amount(1, tx_id, "30rb")
+    assert updated is not None
+    assert updated.id == tx_id
+    assert updated.amount == 30_000
+    # Read back from DB confirms persistence.
+    assert svc.get_transaction(1, tx_id).amount == 30_000
+
+
+def test_edit_amount_preserves_other_fields():
+    svc = _fresh_service()
+    r = svc.record_from_text(1, "kopi 20rb")
+    assert r is not None
+    tx_id = r.transaction.id
+    updated = svc.edit_amount(1, tx_id, "25rb")
+    assert updated is not None
+    assert updated.category == "food"  # unchanged
+    assert updated.kind == "expense"   # unchanged
+    assert updated.currency == "IDR"   # unchanged
+
+
+def test_edit_nonexistent_returns_none():
+    svc = _fresh_service()
+    assert svc.edit_amount(1, 9999, "10rb") is None
+
+
+def test_edit_invalid_amount_returns_none():
+    svc = _fresh_service()
+    r = svc.record_from_text(1, "makan 20rb")
+    assert r is not None
+    assert svc.edit_amount(1, r.transaction.id, "bukan angka") is None
+
+
+def test_delete_removes_transaction():
+    svc = _fresh_service()
+    r = svc.record_from_text(1, "makan 20rb")
+    assert r is not None
+    tx_id = r.transaction.id
+    assert svc.delete(1, tx_id) is True
+    assert svc.get_transaction(1, tx_id) is None
+
+
+def test_delete_scoped_to_owner():
+    svc = _fresh_service()
+    r = svc.record_from_text(1, "makan 20rb")
+    assert r is not None
+    # User 2 cannot delete user 1's transaction.
+    assert svc.delete(2, r.transaction.id) is False
+    assert svc.get_transaction(1, r.transaction.id) is not None
+
+
 if __name__ == "__main__":
     import traceback
 

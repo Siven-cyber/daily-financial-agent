@@ -27,6 +27,15 @@ _QUESTION_PREFIXES = (
 )
 
 
+def _parse_int(text: str) -> Optional[int]:
+    """Parse a positive integer id; return None if invalid."""
+    text = text.strip()
+    if not text.isdigit():
+        return None
+    value = int(text)
+    return value if value > 0 else None
+
+
 class FinanceBot:
     def __init__(self, config: Config) -> None:
         self._config = config
@@ -119,6 +128,10 @@ class FinanceBot:
             self._send_summary(chat_id, user_id, lang)
         elif cmd in {"terakhir", "recent"}:
             self._send_recent(chat_id, user_id, lang)
+        elif cmd in {"edit", "ubah"}:
+            self._handle_edit(chat_id, user_id, lang, text)
+        elif cmd in {"hapus", "delete", "del"}:
+            self._handle_delete(chat_id, user_id, lang, text)
         else:
             self._tg.send_message(chat_id, t(lang, "help"))
 
@@ -156,6 +169,11 @@ class FinanceBot:
                 t(lang, "currency_set", currency=get_currency(currency).code),
             )
             self._tg.send_message(chat_id, t(lang, "welcome"))
+        elif data.startswith("del:"):
+            lang = self._lang(user_id)
+            self._confirm_delete(chat_id, user_id, lang, data.split(":", 1)[1])
+        elif data.startswith("delcancel:"):
+            pass  # user cancelled; nothing to do
 
     # ----- responses -------------------------------------------------------
 
@@ -222,8 +240,79 @@ class FinanceBot:
             date = tx.occurred_at[:10]
             amount = format_amount(tx.amount, tx.currency)
             label = category_label(tx.category, lang)
-            lines.append(f"{date} {sign}{amount} {label} ({tx.note})")
+            lines.append(f"#{tx.id} {date} {sign}{amount} {label} ({tx.note})")
         self._tg.send_message(chat_id, "\n".join(lines))
+
+    def _handle_edit(self, chat_id: int, user_id: int, lang: str, text: str) -> None:
+        parts = text.split()
+        if len(parts) < 3:
+            self._tg.send_message(chat_id, t(lang, "edit_usage"))
+            return
+        tx_id = _parse_int(parts[1])
+        amount_text = " ".join(parts[2:])
+        if tx_id is None:
+            self._tg.send_message(chat_id, t(lang, "edit_usage"))
+            return
+        updated = self._service.edit_amount(user_id, tx_id, amount_text)
+        if updated is None:
+            # Distinguish "amount unreadable" from "id not found" by re-checking id.
+            if self._service.get_transaction(user_id, tx_id) is None:
+                self._tg.send_message(chat_id, t(lang, "not_found", id=tx_id))
+            else:
+                self._tg.send_message(chat_id, t(lang, "invalid_amount"))
+            return
+        label = category_label(updated.category, lang)
+        self._tg.send_message(
+            chat_id,
+            t(
+                lang,
+                "edited",
+                id=updated.id,
+                amount=format_amount(updated.amount, updated.currency),
+                category=label,
+            ),
+        )
+
+    def _handle_delete(self, chat_id: int, user_id: int, lang: str, text: str) -> None:
+        parts = text.split()
+        if len(parts) < 2:
+            self._tg.send_message(chat_id, t(lang, "delete_usage"))
+            return
+        tx_id = _parse_int(parts[1])
+        if tx_id is None:
+            self._tg.send_message(chat_id, t(lang, "delete_usage"))
+            return
+        tx = self._service.get_transaction(user_id, tx_id)
+        if tx is None:
+            self._tg.send_message(chat_id, t(lang, "not_found", id=tx_id))
+            return
+        label = category_label(tx.category, lang)
+        keyboard = {
+            "inline_keyboard": [[
+                {"text": "Ya, hapus", "callback_data": f"del:{tx_id}"},
+                {"text": "Batal", "callback_data": f"delcancel:{tx_id}"},
+            ]]
+        }
+        self._tg.send_message(
+            chat_id,
+            t(
+                lang,
+                "delete_confirm",
+                id=tx.id,
+                amount=format_amount(tx.amount, tx.currency),
+                category=label,
+            ),
+            reply_markup=keyboard,
+        )
+
+    def _confirm_delete(self, chat_id: int, user_id: int, lang: str, tx_id_str: str) -> None:
+        tx_id = _parse_int(tx_id_str)
+        if tx_id is None:
+            return
+        if self._service.delete(user_id, tx_id):
+            self._tg.send_message(chat_id, t(lang, "deleted", id=tx_id))
+        else:
+            self._tg.send_message(chat_id, t(lang, "not_found", id=tx_id))
 
     def _answer_question(self, chat_id: int, user_id: int, lang: str, text: str) -> None:
         agent = self._get_agent()

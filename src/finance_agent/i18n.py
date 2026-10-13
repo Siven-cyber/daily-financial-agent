@@ -138,6 +138,35 @@ _TEXT: dict[str, dict[str, str]] = {
         "id": "Maaf, terjadi kesalahan. Coba lagi sebentar.",
         "en": "Sorry, something went wrong. Please try again shortly.",
     },
+    # --- edit / delete ---
+    "edited": {
+        "id": "Transaksi #{id} diubah menjadi {amount} ({category}).",
+        "en": "Transaction #{id} updated to {amount} ({category}).",
+    },
+    "deleted": {
+        "id": "Transaksi #{id} dihapus.",
+        "en": "Transaction #{id} deleted.",
+    },
+    "not_found": {
+        "id": "Transaksi #{id} tidak ditemukan. Cek /terakhir untuk id yang benar.",
+        "en": "Transaction #{id} not found. Check /recent for the correct id.",
+    },
+    "edit_usage": {
+        "id": "Gunakan: /edit <id> <nominal>. Contoh: /edit 3 75rb",
+        "en": "Usage: /edit <id> <amount>. Example: /edit 3 25k",
+    },
+    "delete_usage": {
+        "id": "Gunakan: /hapus <id>. Contoh: /hapus 3",
+        "en": "Usage: /delete <id>. Example: /delete 3",
+    },
+    "delete_confirm": {
+        "id": "Hapus transaksi #{id} ({amount}, {category})?",
+        "en": "Delete transaction #{id} ({amount}, {category})?",
+    },
+    "invalid_amount": {
+        "id": "Nominal tidak terbaca. Contoh: 75rb atau 4.50",
+        "en": "Could not read that amount. Examples: 25k or 4.50",
+    },
 }
 
 

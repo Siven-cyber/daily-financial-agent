@@ -203,3 +203,27 @@ def parse_message(
     return ParsedTransaction(
         kind=kind, amount=amount, currency=code, category=category, note=note
     )
+
+
+def parse_amount(text: str, user_currency: str = "IDR") -> Optional[int]:
+    """Parse a bare amount (e.g. "75rb", "4.50", "50000") into minor units.
+
+    Used by the edit command, which supplies only a number without a category/note.
+    Returns None if no valid amount can be read.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return None
+    code = normalize_currency(user_currency)
+    if detected_currency_mismatch(stripped, code) is not None:
+        return None
+    match = _AMOUNT_RE.search(stripped)
+    if not match:
+        return None
+    suffix = (match.group("suf") or "").lower()
+    if suffix and suffix not in _SUFFIXES_BY_CURRENCY.get(code, ()):
+        suffix = ""
+    amount = _parse_amount_minor(match.group("num"), suffix, code)
+    if amount is None or amount <= 0:
+        return None
+    return amount

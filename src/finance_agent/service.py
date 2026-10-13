@@ -12,7 +12,7 @@ from typing import Optional
 from .currency import format_amount, normalize_currency
 from .db import Database, Transaction
 from .i18n import t
-from .parser import parse_message
+from .parser import parse_amount, parse_message
 
 
 @dataclass(frozen=True)
@@ -120,6 +120,27 @@ class FinanceService:
 
     def recent(self, user_id: int, limit: int = 10) -> list[Transaction]:
         return self._db.recent_transactions(user_id, limit)
+
+    # ----- edit / delete ---------------------------------------------------
+
+    def edit_amount(self, user_id: int, tx_id: int, amount_text: str) -> Optional[Transaction]:
+        """Change a transaction's amount. Returns the updated row, or None on failure.
+
+        `amount_text` is parsed in the user's currency. The amount is replaced; kind,
+        currency, category and note are preserved.
+        """
+        currency = self.user_currency(user_id)
+        amount = parse_amount(amount_text, user_currency=currency)
+        if amount is None:
+            return None
+        return self._db.update_transaction_amount(user_id, tx_id, amount)
+
+    def delete(self, user_id: int, tx_id: int) -> bool:
+        """Delete a transaction scoped to the owner. Returns True if removed."""
+        return self._db.delete_transaction(user_id, tx_id)
+
+    def get_transaction(self, user_id: int, tx_id: int) -> Optional[Transaction]:
+        return self._db.get_transaction(user_id, tx_id)
 
     def month_summary(self, user_id: int) -> dict:
         """Summary for the user's current currency."""

@@ -213,6 +213,25 @@ class Database:
             )
             return cur.rowcount > 0
 
+    def update_transaction_amount(
+        self, user_id: int, tx_id: int, amount: int
+    ) -> Optional[Transaction]:
+        """Change the amount of one transaction (scoped to the owner).
+
+        Returns the updated row read back from the DB, or None if no such transaction
+        exists for this user. Only the amount changes; currency/kind/category stay put.
+        """
+        if amount <= 0:
+            raise ValueError("amount must be a positive integer (minor units)")
+        with self._cursor() as cur:
+            cur.execute(
+                "UPDATE transactions SET amount = ? WHERE id = ? AND user_id = ?",
+                (amount, tx_id, user_id),
+            )
+            if cur.rowcount == 0:
+                return None
+        return self.get_transaction(user_id, tx_id)
+
     def recent_transactions(self, user_id: int, limit: int = 10) -> list[Transaction]:
         with self._cursor() as cur:
             cur.execute(
