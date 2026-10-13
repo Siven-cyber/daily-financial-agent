@@ -16,7 +16,7 @@ _API_BASE = "https://api.telegram.org/bot"
 
 
 class TelegramClient:
-    def __init__(self, token: str, *, timeout: int = 50) -> None:
+    def __init__(self, token: str, *, timeout: int = 15) -> None:
         if not token:
             raise ValueError("Telegram bot token is required")
         self._base = f"{_API_BASE}{token}"
@@ -30,8 +30,9 @@ class TelegramClient:
              for k, v in params.items() if v is not None}
         ).encode()
         req = urllib.request.Request(url, data=data, method="POST")
-        # Read timeout slightly above the long-poll timeout so getUpdates can block fully.
-        with urllib.request.urlopen(req, timeout=self._timeout + 10) as resp:
+        # getUpdates uses the long-poll timeout; other calls return immediately. A
+        # generous read timeout (long-poll + margin) covers both cases.
+        with urllib.request.urlopen(req, timeout=self._timeout + 15) as resp:
             return json.loads(resp.read().decode())
 
     def get_me(self) -> dict[str, Any]:
