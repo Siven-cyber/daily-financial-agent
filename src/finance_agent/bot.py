@@ -240,7 +240,7 @@ class FinanceBot:
             date = tx.occurred_at[:10]
             amount = format_amount(tx.amount, tx.currency)
             label = category_label(tx.category, lang)
-            lines.append(f"#{tx.id} {date} {sign}{amount} {label} ({tx.note})")
+            lines.append(f"#{tx.seq} {date} {sign}{amount} {label} ({tx.note})")
         self._tg.send_message(chat_id, "\n".join(lines))
 
     def _handle_edit(self, chat_id: int, user_id: int, lang: str, text: str) -> None:
@@ -267,7 +267,7 @@ class FinanceBot:
             t(
                 lang,
                 "edited",
-                id=updated.id,
+                id=updated.seq,
                 amount=format_amount(updated.amount, updated.currency),
                 category=label,
             ),
@@ -298,7 +298,7 @@ class FinanceBot:
             t(
                 lang,
                 "delete_confirm",
-                id=tx.id,
+                id=tx.seq,
                 amount=format_amount(tx.amount, tx.currency),
                 category=label,
             ),

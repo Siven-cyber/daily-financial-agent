@@ -7,6 +7,9 @@ Design rules:
   its own currency code, and reads are always scoped to one currency.
 - The caller always identifies the user by the authenticated Telegram user_id.
   The model never supplies the user id, so one user can never touch another's data.
+- Transaction ids are independent per user: each user's transactions are numbered 1, 2, 3
+  with a composite primary key (user_id, seq). This avoids leaking the total transaction
+  count across users and keeps each user's numbering intuitive.
 - Every write returns the stored row read back from the database, so callers can
   confirm what was actually persisted instead of trusting an upstream claim.
 """
@@ -30,8 +33,8 @@ CREATE TABLE IF NOT EXISTS users (
 );
 
 CREATE TABLE IF NOT EXISTS transactions (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id     INTEGER NOT NULL,
+    seq         INTEGER NOT NULL,             -- per-user sequence, starts at 1
     kind        TEXT NOT NULL CHECK (kind IN ('expense', 'income')),
     amount      INTEGER NOT NULL CHECK (amount > 0),  -- minor units of `currency`
     currency    TEXT NOT NULL DEFAULT 'IDR',
@@ -39,6 +42,7 @@ CREATE TABLE IF NOT EXISTS transactions (
     note        TEXT NOT NULL DEFAULT '',
     occurred_at TEXT NOT NULL,                 -- ISO 8601 UTC
     created_at  TEXT NOT NULL,
+    PRIMARY KEY (user_id, seq),
     FOREIGN KEY (user_id) REFERENCES users(user_id)
 );
 
@@ -60,10 +64,10 @@ def _utc_now_iso() -> str:
 
 @dataclass(frozen=True)
 class Transaction:
-    id: int
+    seq: int      # per-user sequence number (the id the user sees)
     user_id: int
     kind: str
-    amount: int  # minor units of `currency`
+    amount: int   # minor units of `currency`
     currency: str
     category: str
     note: str
@@ -92,22 +96,49 @@ class Database:
     def _migrate(self) -> None:
         """Migrate existing databases to the current schema.
 
-        SQLite ADD COLUMN is additive; we only add a column when it is missing.
-        - `users.currency` starts NULL (not yet chosen) so onboarding asks the user to
-          pick a currency.
-        - `transactions.currency` defaults to 'IDR' because the first release recorded
-          Rupiah only, so existing rows keep their real currency.
+        Handles two historical layouts:
+        - pre-currency: users/transactions lack a `currency` column.
+        - pre-composite-key: transactions use a global AUTOINCREMENT `id` primary key,
+          which we replace with a per-user (user_id, seq) composite key. Existing rows
+          are renumbered so each user's seq starts at 1 in chronological order.
         """
+        # 1. users.currency (nullable; NULL = not yet chosen).
         if "currency" not in {
             row["name"] for row in self._conn.execute("PRAGMA table_info(users)")
         }:
             self._conn.execute("ALTER TABLE users ADD COLUMN currency TEXT")
-        if "currency" not in {
+
+        tx_cols = {
             row["name"] for row in self._conn.execute("PRAGMA table_info(transactions)")
-        }:
+        }
+        # 2. transactions.currency (default IDR: first release recorded Rupiah only).
+        if "currency" not in tx_cols:
             self._conn.execute(
                 "ALTER TABLE transactions ADD COLUMN currency TEXT NOT NULL DEFAULT 'IDR'"
             )
+
+        # 3. Composite key migration: if `transactions` still has a global `id` PK
+        #    (and no `seq` column), rebuild it as (user_id, seq).
+        if "seq" not in tx_cols:
+            self._conn.execute("ALTER TABLE transactions RENAME TO transactions_old")
+            self._conn.executescript(_SCHEMA)  # creates the new transactions table
+            # Renumber per user in chronological (then created) order.
+            self._conn.execute(
+                """
+                INSERT INTO transactions
+                    (user_id, seq, kind, amount, currency, category, note,
+                     occurred_at, created_at)
+                SELECT
+                    user_id,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY user_id
+                        ORDER BY occurred_at ASC, id ASC
+                    ),
+                    kind, amount, currency, category, note, occurred_at, created_at
+                FROM transactions_old
+                """
+            )
+            self._conn.execute("DROP TABLE transactions_old")
 
     def close(self) -> None:
         with self._lock:
@@ -174,7 +205,7 @@ class Database:
         note: str = "",
         occurred_at: Optional[str] = None,
     ) -> Transaction:
-        """Insert one transaction and return the row read back from the DB.
+        """Insert one transaction (assigned the next per-user seq) and read it back.
 
         `amount` is in the minor unit of `currency` (e.g. cents for USD).
         """
@@ -187,56 +218,60 @@ class Database:
         created = _utc_now_iso()
         with self._cursor() as cur:
             cur.execute(
-                "INSERT INTO transactions "
-                "(user_id, kind, amount, currency, category, note, occurred_at, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (user_id, kind, amount, currency, category, note, occurred, created),
+                "SELECT COALESCE(MAX(seq), 0) + 1 FROM transactions WHERE user_id = ?",
+                (user_id,),
             )
-            tx_id = int(cur.lastrowid)
-        return self.get_transaction(user_id, tx_id)  # type: ignore[return-value]
+            seq = int(cur.fetchone()[0])
+            cur.execute(
+                "INSERT INTO transactions "
+                "(user_id, seq, kind, amount, currency, category, note, occurred_at, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (user_id, seq, kind, amount, currency, category, note, occurred, created),
+            )
+        return self.get_transaction(user_id, seq)  # type: ignore[return-value]
 
-    def get_transaction(self, user_id: int, tx_id: int) -> Optional[Transaction]:
+    def get_transaction(self, user_id: int, seq: int) -> Optional[Transaction]:
         with self._cursor() as cur:
             cur.execute(
-                "SELECT * FROM transactions WHERE id = ? AND user_id = ?",
-                (tx_id, user_id),
+                "SELECT * FROM transactions WHERE user_id = ? AND seq = ?",
+                (user_id, seq),
             )
             row = cur.fetchone()
             return _row_to_tx(row) if row else None
 
-    def delete_transaction(self, user_id: int, tx_id: int) -> bool:
-        """Delete one transaction scoped to the owner. Returns True if a row was removed."""
+    def delete_transaction(self, user_id: int, seq: int) -> bool:
+        """Delete one transaction scoped to the owner. Returns True if removed."""
         with self._cursor() as cur:
             cur.execute(
-                "DELETE FROM transactions WHERE id = ? AND user_id = ?",
-                (tx_id, user_id),
+                "DELETE FROM transactions WHERE user_id = ? AND seq = ?",
+                (user_id, seq),
             )
             return cur.rowcount > 0
 
     def update_transaction_amount(
-        self, user_id: int, tx_id: int, amount: int
+        self, user_id: int, seq: int, amount: int
     ) -> Optional[Transaction]:
         """Change the amount of one transaction (scoped to the owner).
 
         Returns the updated row read back from the DB, or None if no such transaction
-        exists for this user. Only the amount changes; currency/kind/category stay put.
+        exists for this user. Only the amount changes; other fields stay put.
         """
         if amount <= 0:
             raise ValueError("amount must be a positive integer (minor units)")
         with self._cursor() as cur:
             cur.execute(
-                "UPDATE transactions SET amount = ? WHERE id = ? AND user_id = ?",
-                (amount, tx_id, user_id),
+                "UPDATE transactions SET amount = ? WHERE user_id = ? AND seq = ?",
+                (amount, user_id, seq),
             )
             if cur.rowcount == 0:
                 return None
-        return self.get_transaction(user_id, tx_id)
+        return self.get_transaction(user_id, seq)
 
     def recent_transactions(self, user_id: int, limit: int = 10) -> list[Transaction]:
         with self._cursor() as cur:
             cur.execute(
                 "SELECT * FROM transactions WHERE user_id = ? "
-                "ORDER BY occurred_at DESC, id DESC LIMIT ?",
+                "ORDER BY seq DESC LIMIT ?",
                 (user_id, limit),
             )
             return [_row_to_tx(r) for r in cur.fetchall()]
@@ -292,7 +327,7 @@ class Database:
 
 def _row_to_tx(row: sqlite3.Row) -> Transaction:
     return Transaction(
-        id=int(row["id"]),
+        seq=int(row["seq"]),
         user_id=int(row["user_id"]),
         kind=str(row["kind"]),
         amount=int(row["amount"]),

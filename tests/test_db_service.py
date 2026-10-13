@@ -24,7 +24,7 @@ def test_record_and_readback_idr():
     assert result is not None
     assert result.transaction.amount == 20_000
     assert result.transaction.currency == "IDR"
-    assert result.transaction.id > 0
+    assert result.transaction.seq > 0
 
 
 def test_user_isolation():
@@ -107,10 +107,10 @@ def test_edit_amount_updates_and_reads_back():
     svc = _fresh_service()
     r = svc.record_from_text(1, "makan 20rb")
     assert r is not None
-    tx_id = r.transaction.id
+    tx_id = r.transaction.seq
     updated = svc.edit_amount(1, tx_id, "30rb")
     assert updated is not None
-    assert updated.id == tx_id
+    assert updated.seq == tx_id
     assert updated.amount == 30_000
     # Read back from DB confirms persistence.
     assert svc.get_transaction(1, tx_id).amount == 30_000
@@ -120,7 +120,7 @@ def test_edit_amount_preserves_other_fields():
     svc = _fresh_service()
     r = svc.record_from_text(1, "kopi 20rb")
     assert r is not None
-    tx_id = r.transaction.id
+    tx_id = r.transaction.seq
     updated = svc.edit_amount(1, tx_id, "25rb")
     assert updated is not None
     assert updated.category == "food"  # unchanged
@@ -137,14 +137,14 @@ def test_edit_invalid_amount_returns_none():
     svc = _fresh_service()
     r = svc.record_from_text(1, "makan 20rb")
     assert r is not None
-    assert svc.edit_amount(1, r.transaction.id, "bukan angka") is None
+    assert svc.edit_amount(1, r.transaction.seq, "bukan angka") is None
 
 
 def test_delete_removes_transaction():
     svc = _fresh_service()
     r = svc.record_from_text(1, "makan 20rb")
     assert r is not None
-    tx_id = r.transaction.id
+    tx_id = r.transaction.seq
     assert svc.delete(1, tx_id) is True
     assert svc.get_transaction(1, tx_id) is None
 
@@ -154,8 +154,32 @@ def test_delete_scoped_to_owner():
     r = svc.record_from_text(1, "makan 20rb")
     assert r is not None
     # User 2 cannot delete user 1's transaction.
-    assert svc.delete(2, r.transaction.id) is False
-    assert svc.get_transaction(1, r.transaction.id) is not None
+    assert svc.delete(2, r.transaction.seq) is False
+    assert svc.get_transaction(1, r.transaction.seq) is not None
+
+
+def test_seq_is_independent_per_user():
+    svc = _fresh_service()
+    a1 = svc.record_from_text(1, "makan 10rb")
+    a2 = svc.record_from_text(1, "makan 20rb")
+    b1 = svc.record_from_text(2, "makan 5rb")
+    b2 = svc.record_from_text(2, "makan 7rb")
+    # Each user's sequence starts at 1 and increments independently.
+    assert a1.transaction.seq == 1
+    assert a2.transaction.seq == 2
+    assert b1.transaction.seq == 1
+    assert b2.transaction.seq == 2
+
+
+def test_seq_reuses_after_delete():
+    svc = _fresh_service()
+    r1 = svc.record_from_text(1, "makan 10rb")
+    assert r1.transaction.seq == 1
+    svc.delete(1, 1)
+    r2 = svc.record_from_text(1, "makan 20rb")
+    # seq is computed as MAX(seq)+1 for the user; after deleting the only row, the
+    # next transaction is #1 again (per-user numbering, gaps may be reused).
+    assert r2.transaction.seq == 1
 
 
 if __name__ == "__main__":
