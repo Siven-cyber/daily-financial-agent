@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "finance-agent"
+version = "0.1.0"
+description = "Personal finance Telegram bot built on the OpenMinion 0.1 Python SDK"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+  "openminion==0.1.4",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
