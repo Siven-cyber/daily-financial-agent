@@ -289,8 +289,8 @@ class FinanceBot:
         label = category_label(tx.category, lang)
         keyboard = {
             "inline_keyboard": [[
-                {"text": "Ya, hapus", "callback_data": f"del:{tx_id}"},
-                {"text": "Batal", "callback_data": f"delcancel:{tx_id}"},
+                {"text": t(lang, "confirm_yes"), "callback_data": f"del:{tx_id}"},
+                {"text": t(lang, "confirm_cancel"), "callback_data": f"delcancel:{tx_id}"},
             ]]
         }
         self._tg.send_message(

@@ -167,6 +167,14 @@ _TEXT: dict[str, dict[str, str]] = {
         "id": "Hapus transaksi #{id} ({amount}, {category})?",
         "en": "Delete transaction #{id} ({amount}, {category})?",
     },
+    "confirm_yes": {
+        "id": "Ya, hapus",
+        "en": "Yes, delete",
+    },
+    "confirm_cancel": {
+        "id": "Batal",
+        "en": "Cancel",
+    },
     "invalid_amount": {
         "id": "Nominal tidak terbaca. Contoh: 75rb atau 4.50",
         "en": "Could not read that amount. Examples: 25k or 4.50",
