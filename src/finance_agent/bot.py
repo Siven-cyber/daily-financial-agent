@@ -13,7 +13,7 @@ from .agent import FinanceAgent
 from .config import Config, load_config
 from .currency import SUPPORTED_CURRENCIES, format_amount, get_currency, normalize_currency
 from .db import Database
-from .i18n import normalize_language, t
+from .i18n import category_label, normalize_language, t
 from .parser import detected_currency_mismatch
 from .service import FinanceService
 from .telegram_client import TelegramClient
@@ -130,7 +130,12 @@ class FinanceBot:
         chat_id = message.get("chat", {}).get("id")
         cb_id = callback.get("id")
         if cb_id:
-            self._tg.answer_callback_query(cb_id)
+            # Answering is best-effort: a 400 here (already answered / stale id) must not
+            # abort the rest of the flow (e.g. sending the currency prompt).
+            try:
+                self._tg.answer_callback_query(cb_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("answer_callback_query failed: %s", exc)
         if chat_id is None or user_id is None:
             return
         if data.startswith("lang:"):
@@ -179,8 +184,9 @@ class FinanceBot:
     def _send_record_confirmation(self, chat_id: int, lang: str, result) -> None:
         tx = result.transaction
         key = "recorded_income" if tx.kind == "income" else "recorded_expense"
+        label = category_label(tx.category, lang)
         msg = t(
-            lang, key, amount=format_amount(tx.amount, tx.currency), category=tx.category
+            lang, key, amount=format_amount(tx.amount, tx.currency), category=label
         )
         if result.budget_warning:
             msg = f"{msg}\n{result.budget_warning}"
@@ -201,7 +207,8 @@ class FinanceBot:
             lines.append("")
             lines.append(t(lang, "summary_by_category"))
             for category, total in s["by_category"]:
-                lines.append(f"- {category}: {format_amount(total, currency)}")
+                label = category_label(category, lang)
+                lines.append(f"- {label}: {format_amount(total, currency)}")
         self._tg.send_message(chat_id, "\n".join(lines))
 
     def _send_recent(self, chat_id: int, user_id: int, lang: str) -> None:
@@ -214,7 +221,8 @@ class FinanceBot:
             sign = "+" if tx.kind == "income" else "-"
             date = tx.occurred_at[:10]
             amount = format_amount(tx.amount, tx.currency)
-            lines.append(f"{date} {sign}{amount} {tx.category} ({tx.note})")
+            label = category_label(tx.category, lang)
+            lines.append(f"{date} {sign}{amount} {label} ({tx.note})")
         self._tg.send_message(chat_id, "\n".join(lines))
 
     def _answer_question(self, chat_id: int, user_id: int, lang: str, text: str) -> None:

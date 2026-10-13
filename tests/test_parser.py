@@ -24,7 +24,7 @@ def test_idr_simple_expense_rb():
     assert p.kind == "expense"
     assert p.amount == 20_000  # rupiah
     assert p.currency == "IDR"
-    assert p.category == "Makan"
+    assert p.category == "food"
 
 
 def test_idr_income_juta():
@@ -32,7 +32,7 @@ def test_idr_income_juta():
     assert p is not None
     assert p.kind == "income"
     assert p.amount == 6_000_000
-    assert p.category == "Pemasukan"
+    assert p.category == "income"
 
 
 def test_idr_decimal_shorthand():
@@ -45,7 +45,7 @@ def test_idr_thousands_separator_literal():
     p = parse_message("beli baju 150.000", "IDR")
     assert p is not None
     assert p.amount == 150_000
-    assert p.category == "Belanja"
+    assert p.category == "shopping"
 
 
 def test_idr_rejects_dollar_marker():
@@ -65,7 +65,7 @@ def test_usd_decimal_cents():
     assert p.kind == "expense"
     assert p.amount == 450  # cents
     assert p.currency == "USD"
-    assert p.category == "Makan"
+    assert p.category == "food"
 
 
 def test_usd_dollar_sign_ok():

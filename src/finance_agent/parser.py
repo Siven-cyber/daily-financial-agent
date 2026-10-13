@@ -124,25 +124,29 @@ def _parse_amount_minor(
 
 
 def _guess_category(note: str, kind: str) -> str:
-    """Map common keywords to a human category. Falls back to a generic label."""
+    """Map common keywords to a language-neutral category code.
+
+    Codes (not human labels) are stored, so the bot can render them in the user's
+    language at display time. See i18n.category_label() for the localized names.
+    """
     text = note.lower()
     table = {
-        "Makan": ["makan", "kopi", "coffee", "lunch", "dinner", "sarapan", "jajan",
-                  "food", "warteg", "nasi", "mie", "snack"],
-        "Transport": ["transport", "bensin", "grab", "gojek", "ojek", "parkir",
+        "food": ["makan", "kopi", "coffee", "lunch", "dinner", "sarapan", "jajan",
+                 "food", "warteg", "nasi", "mie", "snack"],
+        "transport": ["transport", "bensin", "grab", "gojek", "ojek", "parkir",
                       "tol", "bus", "kereta", "fuel", "taxi"],
-        "Belanja": ["belanja", "beli", "shopping", "baju", "clothes", "mall"],
-        "Tagihan": ["listrik", "pulsa", "wifi", "internet", "token", "bill", "tagihan",
-                    "pln", "air"],
-        "Hiburan": ["nonton", "film", "game", "netflix", "spotify", "entertainment"],
-        "Kesehatan": ["obat", "dokter", "rumah sakit", "health", "medicine", "apotek"],
+        "shopping": ["belanja", "beli", "shopping", "baju", "clothes", "mall"],
+        "bills": ["listrik", "pulsa", "wifi", "internet", "token", "bill", "tagihan",
+                  "pln", "air"],
+        "entertainment": ["nonton", "film", "game", "netflix", "spotify", "entertainment"],
+        "health": ["obat", "dokter", "rumah sakit", "health", "medicine", "apotek"],
     }
     for category, keywords in table.items():
         if any(k in text for k in keywords):
             return category
     if kind == "income":
-        return "Pemasukan"
-    return "Lainnya"
+        return "income"
+    return "other"
 
 
 def parse_message(

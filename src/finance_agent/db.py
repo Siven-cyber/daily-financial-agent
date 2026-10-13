@@ -25,7 +25,7 @@ _SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
     user_id     INTEGER PRIMARY KEY,          -- Telegram user id
     language    TEXT NOT NULL DEFAULT 'id',   -- 'id' or 'en'
-    currency    TEXT NOT NULL DEFAULT 'IDR',  -- primary currency, e.g. 'IDR' or 'USD'
+    currency    TEXT,                          -- primary currency; NULL = not yet chosen
     created_at  TEXT NOT NULL
 );
 
@@ -90,21 +90,24 @@ class Database:
         self._conn.commit()
 
     def _migrate(self) -> None:
-        """Add columns introduced after the first release, for existing databases.
+        """Migrate existing databases to the current schema.
 
-        SQLite ADD COLUMN is additive and safe to run every startup; we only add a
-        column when it is missing. Existing rows default to IDR, which is correct
-        because the first release recorded Rupiah only.
+        SQLite ADD COLUMN is additive; we only add a column when it is missing.
+        - `users.currency` starts NULL (not yet chosen) so onboarding asks the user to
+          pick a currency.
+        - `transactions.currency` defaults to 'IDR' because the first release recorded
+          Rupiah only, so existing rows keep their real currency.
         """
-        for table in ("users", "transactions"):
-            cols = {
-                row["name"]
-                for row in self._conn.execute(f"PRAGMA table_info({table})")
-            }
-            if "currency" not in cols:
-                self._conn.execute(
-                    f"ALTER TABLE {table} ADD COLUMN currency TEXT NOT NULL DEFAULT 'IDR'"
-                )
+        if "currency" not in {
+            row["name"] for row in self._conn.execute("PRAGMA table_info(users)")
+        }:
+            self._conn.execute("ALTER TABLE users ADD COLUMN currency TEXT")
+        if "currency" not in {
+            row["name"] for row in self._conn.execute("PRAGMA table_info(transactions)")
+        }:
+            self._conn.execute(
+                "ALTER TABLE transactions ADD COLUMN currency TEXT NOT NULL DEFAULT 'IDR'"
+            )
 
     def close(self) -> None:
         with self._lock:
@@ -123,7 +126,7 @@ class Database:
     # ----- users -----------------------------------------------------------
 
     def ensure_user(
-        self, user_id: int, language: str = "id", currency: str = "IDR"
+        self, user_id: int, language: str = "id", currency: Optional[str] = None
     ) -> None:
         with self._cursor() as cur:
             cur.execute(

@@ -61,7 +61,7 @@ def test_summaries_do_not_mix_currencies():
 def test_budget_warning_triggers():
     svc = _fresh_service()
     svc._db.set_language(9, "id")
-    svc._db.set_budget(9, "Makan", 100_000)
+    svc._db.set_budget(9, "food", 100_000)
     r1 = svc.record_from_text(9, "makan 70rb")
     assert r1 is not None and r1.budget_warning is None
     r2 = svc.record_from_text(9, "makan 20rb")  # total 90k, 90% of 100k
@@ -93,9 +93,9 @@ def test_migration_adds_currency_to_existing_db(tmp_path=None):
     con.close()
 
     db = Database(path)  # should migrate without error
-    assert db.get_currency(1) == "IDR"  # existing user defaults to IDR
+    assert db.get_currency(1) is None  # existing user has not chosen a currency yet
     tx = db.recent_transactions(1, 10)
-    assert tx and tx[0].currency == "IDR"  # existing rows default to IDR
+    assert tx and tx[0].currency == "IDR"  # existing rows keep their recorded currency
 
 
 def test_unparseable_returns_none():

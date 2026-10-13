@@ -146,6 +146,29 @@ def normalize_language(language: str | None) -> str:
     return lang if lang in LANGUAGES else DEFAULT_LANGUAGE
 
 
+# Language-neutral category code -> localized label.
+_CATEGORY_LABELS: dict[str, dict[str, str]] = {
+    "food": {"id": "Makan", "en": "Food"},
+    "transport": {"id": "Transport", "en": "Transport"},
+    "shopping": {"id": "Belanja", "en": "Shopping"},
+    "bills": {"id": "Tagihan", "en": "Bills"},
+    "entertainment": {"id": "Hiburan", "en": "Entertainment"},
+    "health": {"id": "Kesehatan", "en": "Health"},
+    "income": {"id": "Pemasukan", "en": "Income"},
+    "other": {"id": "Lainnya", "en": "Other"},
+}
+
+
+def category_label(category: str, language: str | None) -> str:
+    """Localized display name for a stored category code."""
+    lang = normalize_language(language)
+    entry = _CATEGORY_LABELS.get(category)
+    if entry is None:
+        # Unknown/legacy code: show it as-is (defensive).
+        return category
+    return entry.get(lang) or entry.get(DEFAULT_LANGUAGE) or category
+
+
 def t(language: str | None, key: str, **kwargs: object) -> str:
     """Return the localized string for key, formatted with kwargs."""
     lang = normalize_language(language)
