@@ -86,11 +86,8 @@ def test_usd_rejects_rupiah_marker():
 
 
 def test_usd_rejects_idr_shorthand_as_suffix():
-    # "20rb" has no meaning in USD; "rb" is dropped and 20 stands alone, which is a
-    # plausible $20.00, so it should record 2000 cents rather than silently x1000.
-    p = parse_message("lunch 20rb", "USD")
-    assert p is not None
-    assert p.amount == 2_000  # $20.00
+    # An incompatible suffix is ambiguous, never silently reinterpret as dollars.
+    assert parse_message("lunch 20rb", "USD") is None
 
 
 # ----- currency mismatch detection ----------------------------------------

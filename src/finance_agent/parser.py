@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 from typing import Optional
 
 from .currency import get_currency, minor_from_major, normalize_currency
@@ -46,19 +47,19 @@ _INCOME_WORDS = {
 
 # number + optional suffix, e.g. "20rb", "1,5jt", "25k", "150.000", "5.50"
 _AMOUNT_RE = re.compile(
-    r"(?P<num>\d{1,3}(?:[.,]\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?)\s*"
-    r"(?P<suf>rb|ribu|jt|juta|mio|k|m)?",
+    r"(?P<num>\d{1,3}(?:[.,]\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?)"
+    r"(?:\s*(?P<suf>ribu|rb|juta|jt|mio|k|m)\b)?",
     re.IGNORECASE,
 )
 
 # Currency markers mapped to a currency code. Markers not listed here are "unsupported".
 _MARKER_TO_CODE = [
-    (re.compile(r"(\$|usd|us\$|dollar|dolar)", re.IGNORECASE), "USD"),
-    (re.compile(r"(\brp\b|\brp(?=\d)|idr|rupiah)", re.IGNORECASE), "IDR"),
+    (re.compile(r"(\$|\busd\b|\bus\$|\bdollar\b|\bdolar\b)", re.IGNORECASE), "USD"),
+    (re.compile(r"(\brp\b|\brp(?=\d)|\bidr\b|\brupiah\b)", re.IGNORECASE), "IDR"),
 ]
 # Any non-IDR/USD currency marker we do not support at all.
 _UNSUPPORTED_MARKER_RE = re.compile(
-    r"(€|£|¥|₩|฿|eur|gbp|jpy|sgd|myr|aud|cny|rmb|won|yen|euro|pound)",
+    r"(€|£|¥|₩|฿|\b(?:eur|gbp|jpy|sgd|myr|aud|cny|rmb|won|yen|euro|pound)\b)",
     re.IGNORECASE,
 )
 
@@ -94,33 +95,28 @@ def _parse_amount_minor(
     """Convert a matched number + suffix into integer minor units for the currency."""
     cur = get_currency(currency_code)
     suffix = (suffix or "").lower()
-
-    if suffix:
-        # Shorthand suffix: the number before it is a decimal multiplier.
-        # IDR uses ',' as decimal ("1,5jt"); USD uses '.' ("1.5k"). Normalize both.
-        normalized = num_text.replace(",", ".") if cur.code == "IDR" else num_text.replace(",", "")
-        try:
-            value = float(normalized)
-        except ValueError:
-            return None
-        major = value * _SUFFIX_MULTIPLIER[suffix]
-        return minor_from_major(major, cur.code)
-
-    # No suffix.
-    if cur.code == "IDR":
-        # '.'/',' are thousands separators; strip them and read an integer.
-        digits = num_text.replace(".", "").replace(",", "")
-        if not digits.isdigit():
-            return None
-        return minor_from_major(float(digits), cur.code)
-
-    # USD (and other minor-unit currencies): ',' thousands, '.' decimal.
-    normalized = num_text.replace(",", "")
-    try:
-        value = float(normalized)
-    except ValueError:
+    if suffix and suffix not in _SUFFIXES_BY_CURRENCY[cur.code]:
         return None
-    return minor_from_major(value, cur.code)
+    if suffix:
+        pattern = r"\d+(?:[.,]\d+)?" if cur.code == "IDR" else r"\d+(?:\.\d+)?"
+        if not re.fullmatch(pattern, num_text):
+            return None
+        normalized = num_text.replace(",", ".")
+    elif cur.code == "IDR":
+        if not re.fullmatch(r"(?:\d+|\d{1,3}(?:\.\d{3})+|\d{1,3}(?:,\d{3})+)", num_text):
+            return None
+        normalized = num_text.replace(".", "").replace(",", "")
+    else:
+        if not re.fullmatch(r"(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?", num_text):
+            return None
+        normalized = num_text.replace(",", "")
+    try:
+        value = Decimal(normalized) * _SUFFIX_MULTIPLIER.get(suffix, 1) * (10 ** cur.decimals)
+        if value != value.to_integral_value() or not 0 < value <= 9_223_372_036_854_775_807:
+            return None
+        return int(value)
+    except (InvalidOperation, ValueError, OverflowError):
+        return None
 
 
 def _guess_category(note: str, kind: str) -> str:
@@ -170,13 +166,16 @@ def parse_message(
 
     # Only accept the shorthand suffixes valid for this currency; strip others out of
     # the match by checking against the per-currency allow-list below.
-    match = _AMOUNT_RE.search(stripped)
-    if not match:
+    matches = list(_AMOUNT_RE.finditer(stripped))
+    if len(matches) != 1 or re.search(r"[-−]\s*\d", stripped):
+        return None
+    match = matches[0]
+    if match.end() < len(stripped) and stripped[match.end()].isalnum():
         return None
 
     suffix = (match.group("suf") or "").lower()
     if suffix and suffix not in _SUFFIXES_BY_CURRENCY.get(code, ()):  # e.g. "rb" on USD
-        suffix = ""  # treat as no suffix; the number stands alone
+        return None
 
     amount = _parse_amount_minor(match.group("num"), suffix, code)
     if amount is None or amount <= 0:
@@ -217,12 +216,18 @@ def parse_amount(text: str, user_currency: str = "IDR") -> Optional[int]:
     code = normalize_currency(user_currency)
     if detected_currency_mismatch(stripped, code) is not None:
         return None
-    match = _AMOUNT_RE.search(stripped)
-    if not match:
+    matches = list(_AMOUNT_RE.finditer(stripped))
+    if len(matches) != 1 or re.search(r"[-−]\s*\d", stripped):
+        return None
+    match = matches[0]
+    if match.end() < len(stripped) and stripped[match.end()].isalnum():
         return None
     suffix = (match.group("suf") or "").lower()
     if suffix and suffix not in _SUFFIXES_BY_CURRENCY.get(code, ()):
-        suffix = ""
+        return None
+    remainder = stripped[:match.start()] + stripped[match.end():]
+    if not re.fullmatch(r"\s*(?:(?:Rp|IDR|USD|US\$|\$)\s*)?", remainder, re.IGNORECASE):
+        return None
     amount = _parse_amount_minor(match.group("num"), suffix, code)
     if amount is None or amount <= 0:
         return None

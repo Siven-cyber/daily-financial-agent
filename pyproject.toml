@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 dependencies = [
-  "openminion==0.1.4",
+  "openminion==0.1.18",
 ]
 
 [tool.setuptools.packages.find]

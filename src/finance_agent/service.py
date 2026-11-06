@@ -126,11 +126,13 @@ class FinanceService:
     def edit_amount(self, user_id: int, tx_id: int, amount_text: str) -> Optional[Transaction]:
         """Change a transaction's amount. Returns the updated row, or None on failure.
 
-        `amount_text` is parsed in the user's currency. The amount is replaced; kind,
+        `amount_text` is parsed in the original transaction's currency. The amount is replaced; kind,
         currency, category and note are preserved.
         """
-        currency = self.user_currency(user_id)
-        amount = parse_amount(amount_text, user_currency=currency)
+        transaction = self._db.get_transaction(user_id, tx_id)
+        if transaction is None:
+            return None
+        amount = parse_amount(amount_text, user_currency=transaction.currency)
         if amount is None:
             return None
         return self._db.update_transaction_amount(user_id, tx_id, amount)
