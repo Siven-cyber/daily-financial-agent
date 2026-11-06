@@ -21,8 +21,8 @@ from .telegram_client import TelegramClient
 
 logger = logging.getLogger("finance_agent.bot")
 
-# A message is treated as a question (routed to the agent) when it has no amount but
-# ends with a question mark or starts with a common question word.
+# Common question prefixes identify read-only Q&A before incidental edit vocabulary.
+# Destructive requests retain their separate conservative interception.
 _QUESTION_PREFIXES = (
     "berapa", "apa", "kenapa", "bagaimana", "how", "what", "why", "when", "which",
 )
@@ -98,6 +98,12 @@ class FinanceBot:
         from .delete_processing import is_delete, prepare as prepare_delete
         if is_delete(text):
             prepare_delete(self, chat_id, user_id, lang, text)
+            return
+
+        # Explicit interrogatives remain read-only even when mentioning amount/category.
+        # Destructive language above retains its conservative confirmation guard.
+        if text.lower().startswith(_QUESTION_PREFIXES):
+            self._answer_question(chat_id, user_id, lang, text)
             return
 
         from .edit_processing import is_edit, prepare

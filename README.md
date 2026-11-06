@@ -24,6 +24,9 @@ Telegram -> durable inbox -> bounded OpenMinion worker
   failures retain the durable input for bounded retry. No financial write occurs on
   interpretation failure. Model calls run outside SQL transactions.
 - **Grounded answers.** Questions receive backend-computed daily and monthly context.
+  Common interrogative prefixes are routed read-only before incidental edit words
+  such as `amount`, `category` or `change`. Destructive language remains subject to
+  the conservative deletion guard; this does not authorize question-shaped edits.
   Slash edit/delete and onboarding remain deterministic.
   `/recent` (`/terakhir`) first queues the unchanged last 10 transactions, then adds
   AI-selected insights from aggregates of exactly that displayed window. Notes,
