@@ -101,8 +101,9 @@ class FinanceAgent:
         """
         payload: dict[str, object] = {
             "message": f"Context (already computed, treat as truth):\n{context}\n\nQuestion: {question}",
-            "session_id": session_id,
+            "session_id": f"finance-answer-v2:{session_id}",
             "deliver": False,
+            "inbound_metadata": {"caller_handles_delivery": "true"},
             "override_system_prompt": (
                 "You are a concise personal finance assistant. Answer only from the "
                 "provided context. Do not invent numbers. Reply in the user's language."

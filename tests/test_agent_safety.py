@@ -29,6 +29,12 @@ class AgentTests(unittest.TestCase):
         agent._agent_id = None
         self.assertEqual(agent.answer('question', context='IDR 100', session_id='synthetic'), 'answer')
         self.assertEqual(payloads[0].get('allowed_tools'), [])
+        self.assertEqual(payloads[0].get('inbound_metadata'), {'caller_handles_delivery': 'true'})
+        self.assertEqual(payloads[0]['session_id'], 'finance-answer-v2:synthetic')
+        self.assertFalse(payloads[0]['deliver'])
+        agent.answer('different question', context='IDR 200', session_id='synthetic')
+        self.assertEqual(payloads[1]['session_id'], payloads[0]['session_id'])
+        self.assertNotEqual(payloads[1]['message'], payloads[0]['message'])
 
     def test_failed_or_timed_out_answer_cancels_handle(self):
         class Handle:
