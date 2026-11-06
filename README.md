@@ -24,8 +24,8 @@ Telegram -> durable inbox -> bounded OpenMinion worker
   failures retain the durable input for bounded retry. No financial write occurs on
   interpretation failure. Model calls run outside SQL transactions.
 - **Grounded answers.** Questions receive backend-computed daily and monthly context.
-  Explicit edit/delete, onboarding and list/summary commands remain deterministic for
-  now; AI-first command routing is a separate rollout. Confirmation buttons and reply
+  Slash edit/delete, onboarding and list/summary commands remain deterministic;
+  AI-first command routing is a separate rollout. Confirmation buttons and reply
   retries do not invoke the model again.
 - **AI edits (amount/category only).** Use `change #1 to $6.50`,
   `ubah #1 menjadi 25rb`, `change coffee category food`, or
@@ -39,9 +39,22 @@ Telegram -> durable inbox -> bounded OpenMinion worker
   rechecks status, full snapshot and reference resolution before an atomic edit,
   readback confirmation, outbox enqueue and inbox completion. New amounts must match
   the source exactly in the original transaction currency. `/edit` remains unchanged
-  and amount-only; natural-language deletion is not supported.
-- **Latency and privacy.** Recording and supported edits consume provider credit and
-  send entry text (plus the selected transaction snapshot for edits) to the configured
+  and amount-only.
+- **AI deletion requests, never AI deletion execution.** Use `hapus transaksi pentol terakhir`,
+  `delete last pentol`, `delete #1`, `hapus terakhir`, or `delete coffee` (exact unique
+  case-insensitive note). `last` means highest owned sequence, including for a matching
+  note. The backend resolves targets; the model validates intent only using strict
+  JSON with no tools, identity or target fields. Negated, question, conditional,
+  compound, bulk and ambiguous requests clarify, never record or create a confirmation.
+  This deliberately bounded grammar is not arbitrary-language understanding.
+  Inference runs outside SQL on the existing bounded worker. Completion rechecks the
+  pending inbox, full target snapshot and original reference, then atomically queues
+  the existing confirmation capability and completes the inbox. Nothing is deleted
+  until the user presses the confirmation button on its delivered preview (amount,
+  localized category and note). The single-use capability is bound to user/chat/message,
+  expires after five minutes, and rejects a changed target. `/delete` remains supported.
+- **Latency and privacy.** Recording, supported edits and deletion intent validation
+  consume provider credit and send entry text (plus the selected transaction snapshot for edits) to the configured
   model. The bot sends a processing reply while inference runs. Tests are synthetic;
   model interpretation, Telegram delivery and production deployment need separate approval.
 

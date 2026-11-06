@@ -95,6 +95,11 @@ class FinanceBot:
         lang = self._lang(user_id)
         currency = self._service.user_currency(user_id)
 
+        from .delete_processing import is_delete, prepare as prepare_delete
+        if is_delete(text):
+            prepare_delete(self, chat_id, user_id, lang, text)
+            return
+
         from .edit_processing import is_edit, prepare
         if is_edit(text):
             prepare(self, chat_id, user_id, lang, text)
@@ -313,6 +318,7 @@ class FinanceBot:
             t(
                 lang,
                 "delete_confirm",
+                note=tx.note,
                 id=tx.seq,
                 amount=format_amount(tx.amount, tx.currency),
                 category=label,

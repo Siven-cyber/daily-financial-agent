@@ -167,9 +167,13 @@ _TEXT: dict[str, dict[str, str]] = {
         "id": "Gunakan: /hapus <id>. Contoh: /hapus 3",
         "en": "Usage: /delete <id>. Example: /delete 3",
     },
+    "delete_clarify": {
+        "id": "Belum dihapus. Sebut satu transaksi: hapus #1, hapus terakhir, hapus catatan unik, atau hapus transaksi pentol terakhir. Konfirmasi tombol diperlukan.",
+        "en": "Nothing deleted. Specify one transaction: delete #1, delete last, delete an exact unique note, or delete last pentol. Button confirmation is required.",
+    },
     "delete_confirm": {
-        "id": "Hapus transaksi #{id} ({amount}, {category})?",
-        "en": "Delete transaction #{id} ({amount}, {category})?",
+        "id": "Hapus transaksi #{id} ({amount}, {category})?\n{note}",
+        "en": "Delete transaction #{id} ({amount}, {category})?\n{note}",
     },
     "delete_done": {
         "id": "Transaksi dihapus.",
