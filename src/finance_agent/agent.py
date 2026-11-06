@@ -47,8 +47,17 @@ class FinanceAgent:
         self._agent_id = agent_id
         self._runtime = APIRuntime.from_config_path(self._config_path)
 
+    def cancel_active(self) -> None:
+        self._closing = True
+        handle = getattr(self, '_active_handle', None)
+        if handle is not None:
+            handle.cancel()
+
     def close(self) -> None:
-        self._runtime.close()
+        try:
+            self.cancel_active()
+        finally:
+            self._runtime.close()
 
     def interpret(self, text: str, *, session_id: str) -> Optional[Interpretation]:
         """Ask the agent to interpret a message via the MCP tool.
@@ -101,8 +110,21 @@ class FinanceAgent:
         }
         if self._agent_id:
             payload["agent_id"] = self._agent_id
-        response = self._runtime.submit_turn(payload=payload).result(timeout_s=180.0)
-        return str(getattr(response, "final_text", "") or "")
+        payload['allowed_tools'] = []
+        if getattr(self, '_closing', False):
+            raise RuntimeError('Agent is closing')
+        handle = self._runtime.submit_turn(payload=payload)
+        self._active_handle = handle
+        try:
+            if getattr(self, '_closing', False):
+                raise RuntimeError('Agent is closing')
+            response = handle.result(timeout_s=180.0)
+            return str(getattr(response, "final_text", "") or "")
+        except BaseException:
+            handle.cancel()
+            raise
+        finally:
+            self._active_handle = None
 
     def _run_and_extract_tool_output(self, payload: dict) -> Optional[dict]:
         """Run a streamed turn and pull the structured output of the interpret tool."""

@@ -29,9 +29,72 @@ class ReplyCollector:
 
 
 class UpdateProcessor:
-    def __init__(self, bot: Any) -> None:
+    def __init__(self, bot: Any, async_questions: bool = False) -> None:
         self.bot = bot
         self.store = DeliveryStore(bot._db)
+        from .question_worker import QuestionWorker
+        self.questions = QuestionWorker() if async_questions else None
+        import threading
+        self.stopping = threading.Event()
+
+    def close(self) -> None:
+        self.stopping.set()
+        agent = getattr(self.bot, '_agent', None)
+        try:
+            if agent is not None:
+                agent.cancel_active()
+        finally:
+            try:
+                if self.questions is not None:
+                    self.questions.close()
+            finally:
+                agent = getattr(self.bot, '_agent', None)
+                if agent is not None:
+                    agent.close()
+
+    def _collect_answers(self) -> None:
+        if self.questions is None:
+            return
+        from .i18n import t
+        for update_id, future in self.questions.completed():
+            try:
+                chat_id, user_id, lang, answer = future.result()
+                collector = ReplyCollector()
+                if answer is None:
+                    transport = self.bot._tg
+                    self.bot._tg = collector
+                    try:
+                        self.bot._send_summary(chat_id, user_id, lang)
+                    finally:
+                        self.bot._tg = transport
+                else:
+                    collector.send_message(chat_id, answer)
+                with self.bot._db.atomic():
+                    for ordinal, (method, payload) in enumerate(collector.calls, start=1):
+                        self.store.enqueue(update_id, ordinal, method, payload, user_id)
+                    self.store.complete(update_id)
+            except Exception as exc:
+                self.store.fail_update(update_id, exc)
+
+    def _submit_question(self, update: dict, question: DeferredQuestion) -> None:
+        from .i18n import t
+        chat_id, user_id, lang, text = question.args_to_call
+        context = self.bot._service.summary_context(user_id)
+        def compute():
+            try:
+                if self.stopping.is_set():
+                    return chat_id, user_id, lang, None
+                agent = self.bot._get_agent()
+                if self.stopping.is_set():
+                    return chat_id, user_id, lang, None
+                answer = agent.answer(text, context=context, session_id=f'user-{user_id}') if agent is not None else None
+            except Exception:
+                answer = None
+            return chat_id, user_id, lang, answer or None
+        assert self.questions is not None
+        if self.questions.submit(update['update_id'], compute):
+            with self.bot._db.atomic():
+                self.store.enqueue(update['update_id'], 0, 'sendMessage', {'chat_id': chat_id, 'text': t(lang, 'processing')}, user_id)
 
     def receive(self, updates: list[dict]) -> None:
         self.store.receive(updates)
@@ -44,7 +107,10 @@ class UpdateProcessor:
         self.store.complete(update['update_id'])
 
     def process_pending(self) -> None:
+        self._collect_answers()
         for update in self.store.pending_updates():
+            if self.questions is not None and update['update_id'] in self.questions.jobs:
+                continue
             real_transport = self.bot._tg
             answer_question = self.bot._answer_question
             collector = ReplyCollector()
@@ -64,9 +130,12 @@ class UpdateProcessor:
                 except DeferredQuestion as question:
                     # No network/model I/O inside the financial transaction.
                     collector.calls.clear()
-                    answer_question(*question.args_to_call, **question.kwargs_to_call)
-                    with self.bot._db.atomic():
-                        self._save_replies(update, collector)
+                    if self.questions is not None:
+                        self._submit_question(update, question)
+                    else:
+                        answer_question(*question.args_to_call, **question.kwargs_to_call)
+                        with self.bot._db.atomic():
+                            self._save_replies(update, collector)
             except Exception as exc:
                 self.store.fail_update(update['update_id'], exc)
                 logger.warning('update processing failed: %s', type(exc).__name__)

@@ -345,26 +345,32 @@ class FinanceBot:
     # ----- main loop -------------------------------------------------------
 
     def run(self) -> None:
-        me = self._tg.get_me()
-        username = me.get("result", {}).get("username", "?")
-        logger.info("bot online as @%s", username)
-        from .processing import UpdateProcessor
-        processor = UpdateProcessor(self)
-        from .queue_ops import QueueOperations
-        maintenance = QueueOperations(self._db)
-        next_cleanup = 0.0
-        while True:
-            if time.monotonic() >= next_cleanup:
-                maintenance.cleanup()
-                next_cleanup = time.monotonic() + 60
-            # Resume durable work even when polling is temporarily unavailable.
-            processor.process_pending()
-            processor.deliver_pending()
+        try:
+            me = self._tg.get_me()
+            username = me.get("result", {}).get("username", "?")
+            logger.info("bot online as @%s", username)
+            from .processing import UpdateProcessor
+            processor = UpdateProcessor(self, async_questions=True)
+            from .queue_ops import QueueOperations
+            maintenance = QueueOperations(self._db)
+            next_cleanup = 0.0
             try:
-                processor.receive(self._tg.fetch_updates(offset=processor.store.offset()))
-            except Exception as exc:
-                logger.warning("polling failed: %s", type(exc).__name__)
-                time.sleep(2)
+                while True:
+                    if time.monotonic() >= next_cleanup:
+                        maintenance.cleanup()
+                        next_cleanup = time.monotonic() + 60
+                    # Resume durable work even when polling is temporarily unavailable.
+                    processor.process_pending()
+                    processor.deliver_pending()
+                    try:
+                        processor.receive(self._tg.fetch_updates(offset=processor.store.offset()))
+                    except Exception as exc:
+                        logger.warning("polling failed: %s", type(exc).__name__)
+                        time.sleep(2)
+            finally:
+                processor.close()
+        finally:
+            self._db.close()
 
 
 def main() -> int:

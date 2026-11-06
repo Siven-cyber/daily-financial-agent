@@ -54,6 +54,86 @@ class ProcessingTests(unittest.TestCase):
         assert stored is not None
         self.assertEqual(stored.amount, 30000)
 
+    def test_cleanup_attempts_runtime_close_after_cancel_failure(self):
+        events = []
+        class Agent:
+            def cancel_active(self):
+                raise RuntimeError('cancel failure')
+            def close(self):
+                events.append('runtime closed')
+        self.bot._agent = Agent()
+        with self.assertRaises(RuntimeError):
+            self.processor.close()
+        self.assertEqual(events, ['runtime closed'])
+
+    def test_startup_failure_closes_database(self):
+        from unittest.mock import Mock
+        self.bot._tg.get_me = Mock(side_effect=OSError('startup'))
+        self.bot._db = Mock()
+        with self.assertRaises(OSError):
+            self.bot.run()
+        self.bot._db.close.assert_called_once()
+
+    def test_shutdown_cancels_active_agent_before_closing_runtime(self):
+        events = []
+        class Agent:
+            def cancel_active(self):
+                events.append('cancel')
+            def close(self):
+                events.append('close')
+        self.bot._agent = Agent()
+        self.processor.close()
+        self.assertEqual(events, ['cancel', 'close'])
+
+    def test_async_model_failure_completes_with_numeric_summary(self):
+        class Agent:
+            def answer(self, *args, **kwargs):
+                raise TimeoutError('synthetic')
+        self.bot._get_agent = lambda: Agent()
+        self.processor = UpdateProcessor(self.bot, async_questions=True)
+        self.addCleanup(self.processor.close)
+        self.update['message']['text'] = 'berapa pengeluaran?'
+        self.processor.receive([self.update])
+        self.processor.process_pending()
+        assert self.processor.questions is not None
+        future = self.processor.questions.jobs[1]
+        try:
+            future.result(timeout=2)
+        except TimeoutError:
+            pass
+        self.processor.process_pending()
+        self.assertEqual(self.db._conn.execute('SELECT status FROM inbox_updates').fetchone()[0], 'done')
+        texts = [r['payload']['text'] for r in self.processor.store.pending_replies()]
+        self.assertTrue(any('Belum ada transaksi' in text for text in texts))
+
+    def test_slow_model_does_not_block_other_user(self):
+        import threading
+        entered, release = threading.Event(), threading.Event()
+        class Agent:
+            def answer(self, *args, **kwargs):
+                entered.set()
+                release.wait(2)
+                return 'synthetic answer'
+        self.bot._get_agent = lambda: Agent()
+        self.processor = UpdateProcessor(self.bot, async_questions=True)
+        self.addCleanup(self.processor.close)
+        self.addCleanup(release.set)
+        self.update['message']['text'] = 'berapa pengeluaran?'
+        self.db.ensure_user(2, currency='IDR')
+        other = {'update_id': 2, 'message': {'chat': {'id': 2, 'type': 'private'}, 'from': {'id': 2}, 'text': 'kopi 20rb'}}
+        self.processor.receive([self.update, other])
+        self.processor.process_pending()
+        self.assertTrue(entered.wait(1))
+        self.assertEqual(len(self.db.recent_transactions(2)), 1)
+        release.set()
+        assert self.processor.questions is not None
+        future = self.processor.questions.jobs[1]
+        future.result(timeout=2)
+        self.processor.process_pending()
+        self.assertEqual(self.db._conn.execute('SELECT status FROM inbox_updates WHERE update_id=1').fetchone()[0], 'done')
+        replies = self.processor.store.pending_replies()
+        self.assertTrue(any(r['payload'].get('text') == 'synthetic answer' for r in replies))
+
     def test_question_executes_outside_financial_transaction(self):
         def answer(chat_id, user_id, lang, text):
             self.assertFalse(self.db._conn.in_transaction)
