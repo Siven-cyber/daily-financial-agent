@@ -135,7 +135,8 @@ class FinanceBot:
         elif cmd == "help":
             self._tg.send_message(chat_id, t(lang, "help"))
         elif cmd in {"ringkasan", "summary"}:
-            self._send_summary(chat_id, user_id, lang)
+            from .summary_processing import prepare
+            prepare(chat_id, user_id, lang)
         elif cmd in {"terakhir", "recent"}:
             self._send_recent(chat_id, user_id, lang)
         elif cmd in {"edit", "ubah"}:
@@ -226,8 +227,8 @@ class FinanceBot:
             msg = f"{msg}\n{result.budget_warning}"
         self._tg.send_message(chat_id, msg)
 
-    def _send_summary(self, chat_id: int, user_id: int, lang: str) -> None:
-        s = self._service.month_summary(user_id)
+    def _send_summary(self, chat_id: int, user_id: int, lang: str, *, snapshot=None) -> None:
+        s = snapshot if snapshot is not None else self._service.month_summary(user_id)
         currency = s["currency"]
         if s["expense"] == 0 and s["income"] == 0:
             self._tg.send_message(chat_id, t(lang, "summary_empty"))

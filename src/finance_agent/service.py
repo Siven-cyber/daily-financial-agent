@@ -144,10 +144,14 @@ class FinanceService:
     def get_transaction(self, user_id: int, tx_id: int) -> Optional[Transaction]:
         return self._db.get_transaction(user_id, tx_id)
 
-    def month_summary(self, user_id: int) -> dict:
-        """Summary for the user's current currency."""
+    def month_summary(self, user_id: int, *, now: Optional[datetime] = None) -> dict:
+        """Summary for the user's currency and explicit WIB calendar month."""
+        from zoneinfo import ZoneInfo
+        local = (now or datetime.now(timezone.utc)).astimezone(ZoneInfo('Asia/Jakarta'))
         currency = self.user_currency(user_id)
-        since, until = _month_window()
+        start, end = _month_window(local)
+        since, until = (datetime.fromisoformat(v).astimezone(timezone.utc).isoformat(timespec='seconds')
+                        for v in (start, end))
         expense = self._db.total(
             user_id, kind="expense", currency=currency, since_iso=since, until_iso=until
         )
@@ -162,6 +166,10 @@ class FinanceService:
             "expense": expense,
             "income": income,
             "by_category": by_cat,
+            "timezone": "Asia/Jakarta",
+            "month_period": local.strftime('%Y-%m'),
+            "since_utc": since,
+            "until_utc": until,
         }
 
     def summary_context(self, user_id: int, *, now: Optional[datetime] = None) -> str:

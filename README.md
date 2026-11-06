@@ -24,9 +24,26 @@ Telegram -> durable inbox -> bounded OpenMinion worker
   failures retain the durable input for bounded retry. No financial write occurs on
   interpretation failure. Model calls run outside SQL transactions.
 - **Grounded answers.** Questions receive backend-computed daily and monthly context.
-  Slash edit/delete, onboarding and list/summary commands remain deterministic;
-  AI-first command routing is a separate rollout. Confirmation buttons and reply
-  retries do not invoke the model again.
+  Slash edit/delete, onboarding and `/recent` remain deterministic.
+  `/summary` (`/ringkasan`) first queues the unchanged authoritative numeric summary,
+  then asks AI to select one or two explanatory fact codes from the same durable
+  aggregate snapshot. The backend validates that selection and renders localized
+  ID/EN prose; model prose, numbers, unknown fields and duplicate fields are rejected.
+  Empty ledgers support an explicit no-recorded-activity insight. Failure or timeout
+  leaves the official summary available without recursively calling AI.
+  Summary periods use half-open WIB (`Asia/Jakarta`) calendar-month boundaries,
+  converted to UTC for queries; currencies are never combined or converted.
+  Only aggregates, currency, explicit month and selected language reach the summary
+  model, not notes, owner identity or arbitrary historical category labels.
+  Summary snapshots and official outbox chunks are committed before inference;
+  restart/retry reuses the snapshot and stable ordinals, then removes it on completion.
+  The bounded single worker performs no SQL or Telegram calls. Inference can consume
+  provider credits and take up to the adapter's 180-second deadline. Other owners'
+  deterministic commands continue while it runs. A crash before completion may repeat
+  inference, but not create duplicate outbox rows. Telegram itself has no idempotency
+  key: a crash after remote acceptance but before local acknowledgement can still
+  redeliver a message (existing at-least-once transport limitation).
+  Confirmation buttons and reply retries do not invoke the model again.
 - **AI edits (amount/category only).** Use `change #1 to $6.50`,
   `ubah #1 menjadi 25rb`, `change coffee category food`, or
   `ubah terakhir kategori makan`. References are an explicit `#id`, an exact unique

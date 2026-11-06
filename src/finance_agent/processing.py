@@ -70,6 +70,10 @@ class UpdateProcessor:
             try:
                 chat_id, user_id, lang, answer = future.result()
                 collector = ReplyCollector()
+                if isinstance(answer, dict) and answer.get('_summary'):
+                    from .summary_processing import complete as complete_summary
+                    complete_summary(self, update_id, chat_id, user_id, lang, answer)
+                    continue
                 if isinstance(answer, dict) and answer.get('_delete'):
                     from .delete_processing import complete as complete_delete
                     complete_delete(self, update_id, chat_id, user_id, lang, answer)
@@ -199,7 +203,10 @@ class UpdateProcessor:
                     collector.calls.clear()
                     from .delete_processing import DeferredDelete, submit as submit_delete
                     from .edit_processing import DeferredEdit, submit
-                    if isinstance(question, DeferredDelete):
+                    from .summary_processing import DeferredSummary, submit as submit_summary
+                    if isinstance(question, DeferredSummary):
+                        submit_summary(self, update, question)
+                    elif isinstance(question, DeferredDelete):
                         submit_delete(self, update, question)
                     elif isinstance(question, DeferredEdit):
                         submit(self, update, question)
