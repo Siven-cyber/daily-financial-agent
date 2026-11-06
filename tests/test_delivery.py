@@ -30,6 +30,17 @@ class DeliveryTests(unittest.TestCase):
         self.store = DeliveryStore(self.db)
     def tearDown(self):
         self.db._conn.close()
+    def test_retrying_chunk_blocks_later_chunks_but_not_other_replies(self):
+        self.store.enqueue(1, 0, 'sendMessage', {'chat_id': 1, 'text': 'first'}, 1)
+        self.store.enqueue(1, 1, 'sendMessage', {'chat_id': 1, 'text': 'second'}, 1)
+        self.store.enqueue(2, 0, 'sendMessage', {'chat_id': 2, 'text': 'other'}, 2)
+        self.db._conn.commit()
+        first = self.store.pending_replies()[0]
+        self.store.fail_reply(first['id'], OSError('synthetic'))
+        self.assertEqual([r['payload']['text'] for r in self.store.pending_replies()], ['other'])
+        self.store.sent(first['id'])
+        self.assertEqual([r['payload']['text'] for r in self.store.pending_replies()], ['second', 'other'])
+
     def test_receipt_is_durable_and_deduplicated(self):
         update = {'update_id': 10, 'message': {'text': 'kopi 20rb', 'chat': {'type': 'private', 'id': 1}}}
         self.store.receive([update, update])

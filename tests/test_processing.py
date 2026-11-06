@@ -103,6 +103,8 @@ class ProcessingTests(unittest.TestCase):
             pass
         self.processor.process_pending()
         self.assertEqual(self.db._conn.execute('SELECT status FROM inbox_updates').fetchone()[0], 'done')
+        for reply in self.processor.store.pending_replies():
+            self.processor.store.sent(reply['id'])
         texts = [r['payload']['text'] for r in self.processor.store.pending_replies()]
         self.assertTrue(any('Belum ada transaksi' in text for text in texts))
 
@@ -131,6 +133,8 @@ class ProcessingTests(unittest.TestCase):
         future.result(timeout=2)
         self.processor.process_pending()
         self.assertEqual(self.db._conn.execute('SELECT status FROM inbox_updates WHERE update_id=1').fetchone()[0], 'done')
+        for reply in self.processor.store.pending_replies():
+            self.processor.store.sent(reply['id'])
         replies = self.processor.store.pending_replies()
         self.assertTrue(any(r['payload'].get('text') == 'synthetic answer' for r in replies))
 

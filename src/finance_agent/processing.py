@@ -20,7 +20,13 @@ class ReplyCollector:
         self.calls: list[tuple[str, dict]] = []
 
     def send_message(self, chat_id: int, text: str, **kwargs: Any) -> dict:
-        self.calls.append(('sendMessage', {'chat_id': chat_id, 'text': text, **kwargs}))
+        from .reply_text import split_text
+        parts = split_text(text)
+        for index, part in enumerate(parts):
+            options = dict(kwargs)
+            if index < len(parts) - 1:
+                options.pop('reply_markup', None)
+            self.calls.append(('sendMessage', {'chat_id': chat_id, 'text': part, **options}))
         return {'ok': True, 'result': {}}
 
     def answer_callback_query(self, callback_query_id: str, text: str | None = None) -> dict:
