@@ -52,7 +52,7 @@ class FinanceBot:
             try:
                 self._agent = FinanceAgent(self._config.openminion_config)
             except Exception as exc:  # noqa: BLE001
-                logger.warning("agent unavailable: %s", exc)
+                logger.warning("agent unavailable: %s", type(exc).__name__)
                 return None
         return self._agent
 
@@ -166,7 +166,7 @@ class FinanceBot:
             try:
                 self._tg.answer_callback_query(cb_id)
             except Exception as exc:  # noqa: BLE001
-                logger.debug("answer_callback_query failed: %s", exc)
+                logger.debug("answer_callback_query failed: %s", type(exc).__name__)
         if chat_id is None or user_id is None:
             return
         if data.startswith("lang:"):
@@ -349,7 +349,7 @@ class FinanceBot:
             )
             self._tg.send_message(chat_id, answer or t(lang, "error_generic"))
         except Exception as exc:  # noqa: BLE001
-            logger.warning("answer failed: %s", exc)
+            logger.warning("answer failed: %s", type(exc).__name__)
             self._send_summary(chat_id, user_id, lang)
 
     @staticmethod

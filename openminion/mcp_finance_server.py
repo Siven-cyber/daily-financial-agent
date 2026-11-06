@@ -138,7 +138,7 @@ def handle(msg: dict) -> dict | None:
                 "error": {"code": -32602, "message": f"unknown tool {name}"},
             }
         payload = interpret(params.get("arguments") or {})
-        log(f"interpret -> {payload}")
+        log("interpret completed")
         result = _tool_result(payload)
     else:
         return {

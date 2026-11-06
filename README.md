@@ -23,6 +23,10 @@ Telegram -> durable inbox -> bounded OpenMinion worker
 - **Failure handling.** Invalid or ambiguous proposals prompt clarification. Runtime
   failures retain the durable input for bounded retry. No financial write occurs on
   interpretation failure. Model calls run outside SQL transactions.
+- **Minimal application diagnostics.** MCP interpretation diagnostics do not duplicate
+  transaction payloads. Agent initialization, answer and callback acknowledgement
+  failures log exception class names rather than exception messages. This does not
+  redact historical logs or audit third-party SDK telemetry.
 - **Grounded answers.** Questions receive backend-computed daily and monthly context.
   Common interrogative prefixes are routed read-only before incidental edit words
   such as `amount`, `category` or `change`. Destructive language remains subject to
