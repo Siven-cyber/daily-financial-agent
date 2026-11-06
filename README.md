@@ -68,7 +68,12 @@ Telegram -> durable inbox -> bounded OpenMinion worker
   readback confirmation, outbox enqueue and inbox completion. New amounts must match
   the source exactly in the original transaction currency. `/edit` remains unchanged
   and amount-only.
-- **AI deletion requests, never AI deletion execution.** Use `hapus transaksi pentol terakhir`,
+- **AI deletion requests, never AI deletion execution.** Additional bounded forms include
+  `hapus pembelian pentol yang terakhir`, `yang barusan salah, hapus saja`, and
+  `tolong hapus transaksi nomor 3`. These normalize to the same trusted references;
+  original wording is retained for safety checks and AI intent validation.
+  All forms still require a separate confirmation button before deletion.
+  Use `hapus transaksi pentol terakhir`,
   `delete last pentol`, `delete #1`, `hapus terakhir`, or `delete coffee` (exact unique
   case-insensitive note). `last` means highest owned sequence, including for a matching
   note. The backend resolves targets; the model validates intent only using strict

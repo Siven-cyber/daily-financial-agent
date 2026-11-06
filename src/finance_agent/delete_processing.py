@@ -32,7 +32,9 @@ def resolve(db, user_id, reference):
 
 
 def prepare(bot, chat_id, user_id, lang, text):
-    match = re.fullmatch(r'(?:delete|remove|hapus)\s+(?:(?:transaction|transaksi)\s+)?(.+)', text, re.I)
+    from .delete_language import normalize
+    normalized = normalize(text)
+    match = re.fullmatch(r'(?:delete|remove|hapus)\s+(?:(?:transaction|transaksi)\s+)?(.+)', normalized, re.I)
     unsafe = re.search(
         r"[?？;\n]|\b(not|no|never|don't|dont|do|can|could|would|should|how|why|what|"
         r"jangan|tidak|tak|bukan|apakah|bisakah|boleh|bagaimana|kenapa|and|or|dan|atau|"
