@@ -8,6 +8,19 @@ English; the user picks the language on first contact.
 
 Built for the Cortensor Hackathon #5. The project targets OpenMinion 0.1.18, checked against PyPI before the latest changes. Cortensor Portal (gemma4) and a custom OpenAI-compatible development backend are configurable. Live deployment is separate from source updates.
 
+## Read-only queue health check
+
+Run with the project interpreter and an explicit existing database path:
+
+    PYTHONPATH=src .venv/bin/python -m finance_agent.queue_health --db /absolute/path/finance.db
+
+The command reports aggregate inbox/outbox status counts only. It never reads message
+payloads or raw error messages, performs migrations, retries work or sends notifications.
+Exit codes: 0 means no failed work observed, 1 means failed work exists, and 2 means
+inspection failed. A missing database is not created. No failed work does not prove
+Telegram/provider availability or detect every stalled pending item. Scheduling and
+alert delivery are separate operational integrations, not installed by this command.
+
 ## How it works
 
 ```
