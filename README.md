@@ -11,21 +11,24 @@ Built for the Cortensor Hackathon #5. The project targets OpenMinion 0.1.18, che
 ## How it works
 
 ```
-Telegram user ->  bot.py  ->  local parser (fast path, no model)      ->  SQLite (source of truth)
-                           ->  OpenMinion agent (slow path)
-                                 - interpret via MCP tool
-                                 - answer questions / summaries
+Telegram -> durable inbox -> bounded OpenMinion worker
+                              -> validated transaction proposal -> SQLite + reply outbox
+                              -> grounded financial question    -> reply outbox
 ```
 
-Two paths on purpose:
-
-- **Fast path (no model).** A local parser (`parser.py`) understands Indonesian and
-  English amount shorthand ("20rb", "1,5jt", "25k", "150.000") and records instantly.
-  This keeps the common case fast and cheap, and it works even when the model backend is
-  slow or down.
-- **Model path (OpenMinion).** For free-form questions and summaries, the bot passes the
-  numbers it already computed from the database to the agent, which phrases the answer.
-  An experimental MCP interpretation tool exists, but the current Telegram handler does not call it for ambiguous logging; it asks for clarification instead.
+- **AI-first recording.** Every supported free-text transaction is interpreted by
+  OpenMinion. The backend validates the JSON schema, currency, category, amount and
+  transaction direction before committing. The local parser validates amount safety;
+  it does not select the stored category or provide a recording fallback.
+- **Failure handling.** Invalid or ambiguous proposals prompt clarification. Runtime
+  failures retain the durable input for bounded retry. No financial write occurs on
+  interpretation failure. Model calls run outside SQL transactions.
+- **Grounded answers.** Questions receive backend-computed daily and monthly context.
+  Explicit edit/delete, onboarding and list/summary commands remain deterministic for
+  now; AI-first command routing is a separate rollout. Confirmation buttons and reply
+  retries do not invoke the model again.
+- **Latency and privacy.** Recording consumes provider credit and sends the entry text
+  to the configured model. The bot sends a processing reply while inference runs.
 
 **Money safety.** The database (`db.py`) is the single source of truth. The user is always
 identified by the authenticated Telegram `user_id`, never by anything the model produces,

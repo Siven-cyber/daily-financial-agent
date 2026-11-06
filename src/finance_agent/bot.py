@@ -109,13 +109,8 @@ class FinanceBot:
             )
             return
 
-        # Fast path: local parser records instantly.
-        result = self._service.record_from_text(user_id, text)
-        if result is not None:
-            self._send_record_confirmation(chat_id, lang, result)
-            return
-
-        self._tg.send_message(chat_id, t(lang, "not_understood"))
+        from .processing import DeferredRecord
+        raise DeferredRecord((chat_id, user_id, lang, text, currency), {})
 
     def _handle_command(self, chat_id: int, user_id: int, text: str) -> None:
         cmd = text.split()[0].lstrip("/").lower()

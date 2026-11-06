@@ -31,11 +31,82 @@ class ProcessingTests(unittest.TestCase):
         self.bot._db = self.db
         self.bot._service = FinanceService(self.db)
         self.bot._tg = Telegram()
-        self.bot._agent = None
+        from types import SimpleNamespace
+        import json
+        from finance_agent.parser import parse_message
+        def fake_answer(question, **kwargs):
+            self.assertFalse(self.db._conn.in_transaction)
+            parsed = parse_message(question.split('User text: ', 1)[-1], 'IDR')
+            return json.dumps(vars(parsed)) if parsed else 'null'
+        self.bot._agent = SimpleNamespace(answer=fake_answer, cancel_active=lambda: None, close=lambda: None)
         self.processor = UpdateProcessor(self.bot)
         self.update = {'update_id': 1, 'message': {'message_id': 1, 'chat': {'id': 1, 'type': 'private'}, 'from': {'id': 1}, 'text': 'kopi 20rb'}}
     def tearDown(self):
         self.db.close()
+    def test_ai_food_category_is_used_and_replay_does_not_duplicate(self):
+        import json
+        calls = []
+        def answer(*args, **kwargs):
+            self.assertFalse(self.db._conn.in_transaction)
+            calls.append(1)
+            return json.dumps(dict(kind='expense', amount=5000, currency='IDR', category='food', note='pentol'))
+        self.bot._agent.answer = answer
+        self.update['message']['text'] = 'pentol 5k'
+        self.processor.receive([self.update])
+        self.processor.process_pending()
+        self.processor.receive([self.update])
+        self.processor.process_pending()
+        rows = self.db.recent_transactions(1)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].category, 'food')
+        self.assertEqual(len(calls), 1)
+
+    def test_async_record_commits_after_interpretation_and_is_durable(self):
+        import json
+        self.bot._agent.answer = lambda *a, **k: json.dumps(dict(kind='expense', amount=5000, currency='IDR', category='food', note='pentol'))
+        self.update['message']['text'] = 'pentol 5k'
+        self.processor = UpdateProcessor(self.bot, async_questions=True)
+        self.addCleanup(self.processor.close)
+        self.processor.receive([self.update])
+        self.processor.process_pending()
+        self.assertEqual(self.db.recent_transactions(1), [])
+        self.processor.questions.jobs[1].result(timeout=2)
+        self.processor.process_pending()
+        self.assertEqual(self.db.recent_transactions(1)[0].category, 'food')
+        self.processor.process_pending()
+        self.assertEqual(len(self.db.recent_transactions(1)), 1)
+        self.assertEqual(self.db._conn.execute('SELECT status FROM inbox_updates').fetchone()[0], 'done')
+
+    def test_model_failure_does_not_use_local_recording(self):
+        def answer(*args, **kwargs):
+            raise TimeoutError('synthetic timeout')
+        self.bot._agent.answer = answer
+        self.processor.receive([self.update])
+        self.processor.process_pending()
+        self.assertEqual(self.db.recent_transactions(1), [])
+        row = self.db._conn.execute('SELECT status, payload FROM inbox_updates').fetchone()
+        self.assertEqual(row[0], 'pending')
+        self.assertIn('kopi', row[1])
+        self.bot._agent.answer = lambda *a, **k: '{"kind":"expense","amount":20000,"currency":"IDR","category":"food","note":"kopi"}'
+        with self.db.atomic():
+            self.db._conn.execute('UPDATE inbox_updates SET next_attempt_at=0')
+        self.processor.process_pending()
+        self.processor.process_pending()
+        self.assertEqual(len(self.db.recent_transactions(1)), 1)
+
+    def test_stopping_during_agent_init_does_not_start_inference(self):
+        from unittest.mock import Mock
+        agent = Mock()
+        def initialize():
+            self.processor.stopping.set()
+            return agent
+        self.bot._get_agent = initialize
+        self.processor.receive([self.update])
+        self.processor.process_pending()
+        agent.answer.assert_not_called()
+        self.assertEqual(self.db.recent_transactions(1), [])
+        self.assertEqual(self.db._conn.execute('SELECT status FROM inbox_updates').fetchone()[0], 'pending')
+
     def test_failed_create_blocks_following_edit_for_same_user(self):
         original = self.bot._send_record_confirmation
         def fail(*args):
@@ -122,11 +193,12 @@ class ProcessingTests(unittest.TestCase):
         self.addCleanup(release.set)
         self.update['message']['text'] = 'berapa pengeluaran?'
         self.db.ensure_user(2, currency='IDR')
-        other = {'update_id': 2, 'message': {'chat': {'id': 2, 'type': 'private'}, 'from': {'id': 2}, 'text': 'kopi 20rb'}}
+        other = {'update_id': 2, 'message': {'chat': {'id': 2, 'type': 'private'}, 'from': {'id': 2}, 'text': '/recent'}}
         self.processor.receive([self.update, other])
         self.processor.process_pending()
         self.assertTrue(entered.wait(1))
-        self.assertEqual(len(self.db.recent_transactions(2)), 1)
+        self.assertEqual(self.db._conn.execute('SELECT status FROM inbox_updates WHERE update_id=2').fetchone()[0], 'done')
+        self.assertEqual(len(self.db.recent_transactions(2)), 0)
         release.set()
         assert self.processor.questions is not None
         future = self.processor.questions.jobs[1]

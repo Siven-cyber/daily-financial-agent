@@ -15,6 +15,10 @@ class DeferredQuestion(Exception):
         self.kwargs_to_call = kwargs
 
 
+class DeferredRecord(DeferredQuestion):
+    """Interpret outside the financial transaction, then commit atomically."""
+
+
 class ReplyCollector:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict]] = []
@@ -66,6 +70,9 @@ class UpdateProcessor:
             try:
                 chat_id, user_id, lang, answer = future.result()
                 collector = ReplyCollector()
+                if isinstance(answer, dict) and answer.get('_record'):
+                    self._complete_record(update_id, chat_id, user_id, lang, answer.get('proposal'))
+                    continue
                 if answer is None:
                     transport = self.bot._tg
                     self.bot._tg = collector
@@ -74,13 +81,59 @@ class UpdateProcessor:
                     finally:
                         self.bot._tg = transport
                 else:
-                    collector.send_message(chat_id, answer)
+                    collector.send_message(chat_id, str(answer))
                 with self.bot._db.atomic():
                     for ordinal, (method, payload) in enumerate(collector.calls, start=1):
                         self.store.enqueue(update_id, ordinal, method, payload, user_id)
                     self.store.complete(update_id)
             except Exception as exc:
                 self.store.fail_update(update_id, exc)
+
+    def _complete_record(self, update_id, chat_id, user_id, lang, proposal):
+        from .i18n import t
+        collector = ReplyCollector()
+        transport = self.bot._tg
+        self.bot._tg = collector
+        try:
+            with self.bot._db.atomic():
+                row = self.bot._db._conn.execute('SELECT status FROM inbox_updates WHERE update_id=?', (update_id,)).fetchone()
+                if row is None or row[0] != 'pending':
+                    return
+                if proposal is None:
+                    collector.send_message(chat_id, t(lang, 'not_understood'))
+                else:
+                    result = self.bot._service.record(user_id, **proposal)
+                    self.bot._send_record_confirmation(chat_id, lang, result)
+                for ordinal, (method, payload) in enumerate(collector.calls, start=1):
+                    self.store.enqueue(update_id, ordinal, method, payload, user_id)
+                self.store.complete(update_id)
+        finally:
+            self.bot._tg = transport
+
+    def _submit_record(self, update, record):
+        from .interpretation import interpret
+        from .i18n import t
+        chat_id, user_id, lang, text, currency = record.args_to_call
+        def compute():
+            proposal = None
+            try:
+                if self.stopping.is_set():
+                    raise RuntimeError('Processor stopping')
+                agent = self.bot._get_agent()
+                if self.stopping.is_set():
+                    raise RuntimeError('Processor stopping')
+                if agent is None:
+                    raise RuntimeError('Model unavailable')
+                proposal = interpret(agent, text, currency, f'update-{update["update_id"]}')
+            except ValueError:
+                logger.warning('transaction interpretation invalid; clarification required')
+            return chat_id, user_id, lang, {'_record': True, 'proposal': proposal}
+        if self.questions is None:
+            _, _, _, answer = compute()
+            self._complete_record(update['update_id'], chat_id, user_id, lang, answer['proposal'])
+        elif self.questions.submit(update['update_id'], compute):
+            with self.bot._db.atomic():
+                self.store.enqueue(update['update_id'], 0, 'sendMessage', {'chat_id': chat_id, 'text': t(lang, 'processing')}, user_id)
 
     def _submit_question(self, update: dict, question: DeferredQuestion) -> None:
         from .i18n import t
@@ -136,7 +189,9 @@ class UpdateProcessor:
                 except DeferredQuestion as question:
                     # No network/model I/O inside the financial transaction.
                     collector.calls.clear()
-                    if self.questions is not None:
+                    if isinstance(question, DeferredRecord):
+                        self._submit_record(update, question)
+                    elif self.questions is not None:
                         self._submit_question(update, question)
                     else:
                         answer_question(*question.args_to_call, **question.kwargs_to_call)
