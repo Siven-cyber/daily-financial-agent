@@ -6,7 +6,7 @@ like a normal person ("makan siang 25rb", "salary 6m"), and it records your inco
 expenses, answers questions, and sends monthly summaries. The bot speaks Indonesian and
 English; the user picks the language on first contact.
 
-Built for the Cortensor Hackathon #5. The model backend is Cortensor Portal (gemma4).
+Built for the Cortensor Hackathon #5. The project targets OpenMinion 0.1.18, checked against PyPI before the latest changes. Cortensor Portal (gemma4) and a custom OpenAI-compatible development backend are configurable. Live deployment is separate from source updates; see REMEDIATION.md.
 
 ## How it works
 
@@ -25,7 +25,7 @@ Two paths on purpose:
   slow or down.
 - **Model path (OpenMinion).** For free-form questions and summaries, the bot passes the
   numbers it already computed from the database to the agent, which phrases the answer.
-  A custom tool served over MCP (`mcp_finance_server.py`) interprets ambiguous messages.
+  An experimental MCP interpretation tool exists, but the current Telegram handler does not call it for ambiguous logging; it asks for clarification instead.
 
 **Money safety.** The database (`db.py`) is the single source of truth. The user is always
 identified by the authenticated Telegram `user_id`, never by anything the model produces,
@@ -57,11 +57,17 @@ python -m finance_agent.bot
 - `/summary` (`/ringkasan`): this month's totals and category breakdown
 - `/recent` (`/terakhir`): last 10 transactions
 - `/language` (`/bahasa`): change language
+- `/currency` (`/matauang`): choose IDR or USD, without converting historical records
+- `/edit <id> <amount>` (`/ubah`): edit using the original transaction currency
+- `/delete <id>` (`/hapus`): request a single-use deletion confirmation
 - `/help`: help
+
+Financial operations are restricted to private chats. Questions are routed before transaction parsing. Negative, multiple or ambiguous amounts are rejected. Transaction identifiers increase per user and are never reused after deletion. See OPERATIONS.md for durable inbox/outbox recovery and retention, and PHASE-B-DESIGN.md for migration/cutover constraints.
 
 ## Tests
 
 ```bash
+python -m unittest discover -s tests -v
 python tests/test_parser.py
 python tests/test_db_service.py
 ```
@@ -76,4 +82,4 @@ python tests/test_db_service.py
 - **Sessions**: one session id per Telegram user, isolating conversational state.
 - **Providers**: the Cortensor Portal preset (gemma4), configured without code changes.
 
-See `FINDINGS.md` for what worked, what broke, and the upstream issues filed.
+See `FINDINGS.md` for historical 0.1.3/0.1.4 observations and upstream issues. Those findings are not evidence that newer releases retain the same defects. Current finance tests on 0.1.18 are offline acceptance only, not proof of real-model/tool compatibility.
