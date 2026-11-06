@@ -2,6 +2,9 @@
 # Start the finance bot. Used by the systemd service so the full command is in one
 # place instead of being inlined in the unit file.
 set -euo pipefail
+# SDK state, SQLite sidecars and archives must be private at creation time.
+umask 077
+
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${HERE}"

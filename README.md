@@ -23,6 +23,10 @@ Telegram -> durable inbox -> bounded OpenMinion worker
 - **Failure handling.** Invalid or ambiguous proposals prompt clarification. Runtime
   failures retain the durable input for bounded retry. No financial write occurs on
   interpretation failure. Model calls run outside SQL transactions.
+- **Private runtime defaults.** The bot launcher sets `umask 077` before loading
+  configuration or starting Python. New SDK files and directories default to private
+  permissions, unless a dependency explicitly overrides them. Existing state requires
+  a separate permission audit; this does not encrypt or delete stored history.
 - **Minimal application diagnostics.** MCP interpretation diagnostics do not duplicate
   transaction payloads. Agent initialization, answer and callback acknowledgement
   failures log exception class names rather than exception messages. This does not
