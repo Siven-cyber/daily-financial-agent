@@ -164,15 +164,35 @@ class FinanceService:
             "by_category": by_cat,
         }
 
-    def summary_context(self, user_id: int) -> str:
+    def summary_context(self, user_id: int, *, now: Optional[datetime] = None) -> str:
         """Plain-text context passed to the agent for free-form questions.
 
         Amounts are given in major units with the currency code, so the model phrases
         answers in the right currency without doing any conversion.
         """
-        s = self.month_summary(user_id)
-        currency = s["currency"]
+        from datetime import timedelta
+        from zoneinfo import ZoneInfo
+        local = (now or datetime.now(timezone.utc)).astimezone(ZoneInfo('Asia/Jakarta'))
+        day_start = local.replace(hour=0, minute=0, second=0, microsecond=0)
+        month_start, month_end = _month_window(local)
+        currency = self.user_currency(user_id)
+        def utc(value):
+            return value.astimezone(timezone.utc).isoformat(timespec='seconds')
+        since = utc(datetime.fromisoformat(month_start))
+        until = utc(datetime.fromisoformat(month_end))
+        s = {
+            'expense': self._db.total(user_id, kind='expense', currency=currency, since_iso=since, until_iso=until),
+            'income': self._db.total(user_id, kind='income', currency=currency, since_iso=since, until_iso=until),
+            'by_category': self._db.sum_by_category(user_id, kind='expense', currency=currency, since_iso=since, until_iso=until),
+        }
+        daily = {kind: self._db.total(user_id, kind=kind, currency=currency, since_iso=utc(day_start), until_iso=utc(day_start + timedelta(days=1))) for kind in ('expense', 'income')}
         lines = [
+            'timezone=Asia/Jakarta',
+            f"today_date={local.date().isoformat()}",
+            f"month_period={local.strftime('%Y-%m')}",
+            f"today_expense={format_amount(daily['expense'], currency)}",
+            f"today_income={format_amount(daily['income'], currency)}",
+            'Zero totals mean no recorded amount for that period, not missing context.',
             f"currency={currency}",
             f"month_expense={format_amount(s['expense'], currency)}",
             f"month_income={format_amount(s['income'], currency)}",
