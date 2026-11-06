@@ -6,7 +6,7 @@ like a normal person ("makan siang 25rb", "salary 6m"), and it records your inco
 expenses, answers questions, and sends monthly summaries. The bot speaks Indonesian and
 English; the user picks the language on first contact.
 
-Built for the Cortensor Hackathon #5. The project targets OpenMinion 0.1.18, checked against PyPI before the latest changes. Cortensor Portal (gemma4) and a custom OpenAI-compatible development backend are configurable. Live deployment is separate from source updates; see REMEDIATION.md.
+Built for the Cortensor Hackathon #5. The project targets OpenMinion 0.1.18, checked against PyPI before the latest changes. Cortensor Portal (gemma4) and a custom OpenAI-compatible development backend are configurable. Live deployment is separate from source updates.
 
 ## How it works
 
@@ -62,7 +62,7 @@ python -m finance_agent.bot
 - `/delete <id>` (`/hapus`): request a single-use deletion confirmation
 - `/help`: help
 
-Financial operations are restricted to private chats. Questions are routed before transaction parsing. Negative, multiple or ambiguous amounts are rejected. Transaction identifiers increase per user and are never reused after deletion. See OPERATIONS.md for durable inbox/outbox recovery and retention, and PHASE-B-DESIGN.md for migration/cutover constraints.
+Financial operations are restricted to private chats. Questions are routed before transaction parsing. Negative, multiple or ambiguous amounts are rejected. Transaction identifiers increase per user and are never reused after deletion. Production migration requires a consistent backup, isolated restore verification, and explicit operator approval.
 
 ## Tests
 

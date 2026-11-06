@@ -11,3 +11,16 @@ __pycache__/
 # OpenMinion runtime state and generated local config
 .openminion/
 openminion/agents.json
+
+# Internal planning, remediation, and machine-specific operations
+OPERATIONS.md
+PHASE-B-DESIGN.md
+REMEDIATION.md
+ecosystem.config.js
+.env.*
+!.env.example
+*.db-journal
+*.sqlite
+*.sqlite3
+*.log
+backups/
