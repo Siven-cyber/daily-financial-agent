@@ -138,7 +138,8 @@ class FinanceBot:
             from .summary_processing import prepare
             prepare(chat_id, user_id, lang)
         elif cmd in {"terakhir", "recent"}:
-            self._send_recent(chat_id, user_id, lang)
+            from .recent_processing import prepare
+            prepare(chat_id, user_id, lang)
         elif cmd in {"edit", "ubah"}:
             self._handle_edit(chat_id, user_id, lang, text)
         elif cmd in {"hapus", "delete", "del"}:
@@ -246,8 +247,9 @@ class FinanceBot:
                 lines.append(f"- {label}: {format_amount(total, currency)}")
         self._tg.send_message(chat_id, "\n".join(lines))
 
-    def _send_recent(self, chat_id: int, user_id: int, lang: str) -> None:
-        rows = self._service.recent(user_id, 10)
+    def _send_recent(self, chat_id: int, user_id: int, lang: str, *, rows=None) -> None:
+        if rows is None:
+            rows = self._service.recent(user_id, 10)
         if not rows:
             self._tg.send_message(chat_id, t(lang, "recent_empty"))
             return

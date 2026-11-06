@@ -24,7 +24,13 @@ Telegram -> durable inbox -> bounded OpenMinion worker
   failures retain the durable input for bounded retry. No financial write occurs on
   interpretation failure. Model calls run outside SQL transactions.
 - **Grounded answers.** Questions receive backend-computed daily and monthly context.
-  Slash edit/delete, onboarding and `/recent` remain deterministic.
+  Slash edit/delete and onboarding remain deterministic.
+  `/recent` (`/terakhir`) first queues the unchanged last 10 transactions, then adds
+  AI-selected insights from aggregates of exactly that displayed window. Notes,
+  transaction IDs, dates and owner identity are excluded from model context.
+  Each currency is aggregated separately; insights never imply monthly/all-history
+  totals. Invalid output or model failure leaves the official list available.
+  Both read-only insight paths reuse durable snapshots and outbox ordering.
   `/summary` (`/ringkasan`) first queues the unchanged authoritative numeric summary,
   then asks AI to select one or two explanatory fact codes from the same durable
   aggregate snapshot. The backend validates that selection and renders localized

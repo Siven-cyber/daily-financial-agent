@@ -46,13 +46,19 @@ def select(agent, snapshot, lang, update_id):
     from .interpretation import CATEGORIES
     # Unknown historical labels may contain personal text. Never disclose them.
     safe = dict(snapshot)
-    grouped = {}
-    for category, amount in snapshot['by_category']:
-        code = category if category in CATEGORIES else 'other'
-        grouped[code] = grouped.get(code, 0) + amount
-    safe['by_category'] = sorted(grouped.items())
-    available = facts(safe, lang)
-    context = (f'language={lang}\ntimezone=Asia/Jakarta (WIB)\n' +
+    if snapshot.get('window') == 'displayed_recent':
+        from .recent_processing import facts as recent_facts
+        available = recent_facts(safe, lang)
+        period = 'displayed recent list only; not monthly or all history'
+    else:
+        grouped = {}
+        for category, amount in snapshot['by_category']:
+            code = category if category in CATEGORIES else 'other'
+            grouped[code] = grouped.get(code, 0) + amount
+        safe['by_category'] = sorted(grouped.items())
+        available = facts(safe, lang)
+        period = 'current month, timezone=Asia/Jakarta (WIB)'
+    context = (f'language={lang}\nperiod={period}\n' +
                json.dumps(safe, ensure_ascii=True) + '\navailable_insight_codes=' +
                json.dumps(list(available)))
     answer = agent.answer(
@@ -91,12 +97,21 @@ def submit(processor, update, request):
         bot._db._conn.execute('CREATE TABLE IF NOT EXISTS summary_snapshots (update_id INTEGER PRIMARY KEY, snapshot TEXT NOT NULL, lang TEXT NOT NULL, ordinal INTEGER NOT NULL)')
         row = bot._db._conn.execute('SELECT * FROM summary_snapshots WHERE update_id=?', (update_id,)).fetchone()
         if row is None:
-            snapshot = bot._service.month_summary(user_id)
+            recent = getattr(request, 'recent', False)
+            rows = bot._service.recent(user_id, 10) if recent else None
+            if recent:
+                from .recent_processing import snapshot as recent_snapshot
+                snapshot = recent_snapshot(rows)
+            else:
+                snapshot = bot._service.month_summary(user_id)
             collector = ReplyCollector()
             transport = bot._tg
             bot._tg = collector
             try:
-                bot._send_summary(chat_id, user_id, lang, snapshot=snapshot)
+                if recent:
+                    bot._send_recent(chat_id, user_id, lang, rows=rows)
+                else:
+                    bot._send_summary(chat_id, user_id, lang, snapshot=snapshot)
             finally:
                 bot._tg = transport
             for ordinal, (method, payload) in enumerate(collector.calls):

@@ -193,7 +193,7 @@ class ProcessingTests(unittest.TestCase):
         self.addCleanup(release.set)
         self.update['message']['text'] = 'berapa pengeluaran?'
         self.db.ensure_user(2, currency='IDR')
-        other = {'update_id': 2, 'message': {'chat': {'id': 2, 'type': 'private'}, 'from': {'id': 2}, 'text': '/recent'}}
+        other = {'update_id': 2, 'message': {'chat': {'id': 2, 'type': 'private'}, 'from': {'id': 2}, 'text': '/help'}}
         self.processor.receive([self.update, other])
         self.processor.process_pending()
         self.assertTrue(entered.wait(1))
