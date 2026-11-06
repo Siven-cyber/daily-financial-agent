@@ -27,8 +27,23 @@ Telegram -> durable inbox -> bounded OpenMinion worker
   Explicit edit/delete, onboarding and list/summary commands remain deterministic for
   now; AI-first command routing is a separate rollout. Confirmation buttons and reply
   retries do not invoke the model again.
-- **Latency and privacy.** Recording consumes provider credit and sends the entry text
-  to the configured model. The bot sends a processing reply while inference runs.
+- **AI edits (amount/category only).** Use `change #1 to $6.50`,
+  `ubah #1 menjadi 25rb`, `change coffee category food`, or
+  `ubah terakhir kategori makan`. References are an explicit `#id`, an exact unique
+  note (case-insensitive), or `last`/`terakhir` (highest owned sequence). Ambiguity
+  requests clarification rather than guessing. One field changes per request.
+  Category input is conservatively limited to one alphabetic word; AI chooses the
+  stored category code. Unsupported edit/delete phrases are intercepted before
+  recording. This is a bounded grammar, not arbitrary-language coverage.
+  The model receives only the scoped target snapshot, never an owner id; the backend
+  rechecks status, full snapshot and reference resolution before an atomic edit,
+  readback confirmation, outbox enqueue and inbox completion. New amounts must match
+  the source exactly in the original transaction currency. `/edit` remains unchanged
+  and amount-only; natural-language deletion is not supported.
+- **Latency and privacy.** Recording and supported edits consume provider credit and
+  send entry text (plus the selected transaction snapshot for edits) to the configured
+  model. The bot sends a processing reply while inference runs. Tests are synthetic;
+  model interpretation, Telegram delivery and production deployment need separate approval.
 
 **Money safety.** The database (`db.py`) is the single source of truth. The user is always
 identified by the authenticated Telegram `user_id`, never by anything the model produces,

@@ -70,6 +70,10 @@ class UpdateProcessor:
             try:
                 chat_id, user_id, lang, answer = future.result()
                 collector = ReplyCollector()
+                if isinstance(answer, dict) and answer.get('_edit'):
+                    from .edit_processing import complete
+                    complete(self, update_id, chat_id, user_id, lang, answer)
+                    continue
                 if isinstance(answer, dict) and answer.get('_record'):
                     self._complete_record(update_id, chat_id, user_id, lang, answer.get('proposal'))
                     continue
@@ -189,7 +193,10 @@ class UpdateProcessor:
                 except DeferredQuestion as question:
                     # No network/model I/O inside the financial transaction.
                     collector.calls.clear()
-                    if isinstance(question, DeferredRecord):
+                    from .edit_processing import DeferredEdit, submit
+                    if isinstance(question, DeferredEdit):
+                        submit(self, update, question)
+                    elif isinstance(question, DeferredRecord):
                         self._submit_record(update, question)
                     elif self.questions is not None:
                         self._submit_question(update, question)

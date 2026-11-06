@@ -142,6 +142,10 @@ _TEXT: dict[str, dict[str, str]] = {
         "id": "Maaf, terjadi kesalahan. Coba lagi sebentar.",
         "en": "Sorry, something went wrong. Please try again shortly.",
     },
+    "edit_clarify": {
+        "id": "Belum diubah. Sebut satu transaksi dan nilai yang jelas, contoh: ubah #1 menjadi 25rb atau ubah #1 kategori makan. Edit AI hanya nominal/kategori, bukan hapus. /edit tetap untuk nominal.",
+        "en": "Nothing changed. Specify one transaction and a clear value, e.g. change #1 to $6.50 or change #1 category food. AI edits support amount/category only, not deletion. /edit remains amount-only.",
+    },
     # --- edit / delete ---
     "edited": {
         "id": "Transaksi #{id} diubah menjadi {amount} ({category}).",

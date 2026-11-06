@@ -95,6 +95,11 @@ class FinanceBot:
         lang = self._lang(user_id)
         currency = self._service.user_currency(user_id)
 
+        from .edit_processing import is_edit, prepare
+        if is_edit(text):
+            prepare(self, chat_id, user_id, lang, text)
+            return
+
         # Questions must never reach the transaction-writing fast path.
         if self._looks_like_question(text):
             self._answer_question(chat_id, user_id, lang, text)
