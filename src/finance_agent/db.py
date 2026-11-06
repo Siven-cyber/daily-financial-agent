@@ -16,6 +16,7 @@ Design rules:
 
 from __future__ import annotations
 
+import os
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -75,7 +76,10 @@ class Transaction:
     created_at: str
 
 
-class Database:
+from .db_safety import ConfirmationMixin
+
+
+class Database(ConfirmationMixin):
     """Thread-safe SQLite wrapper.
 
     A single connection is guarded by a lock. That is enough for a bot whose
@@ -84,73 +88,70 @@ class Database:
 
     def __init__(self, path: Path | str) -> None:
         self._path = str(path)
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
+        self._atomic_depth = 0
+        self._savepoint_id = 0
+        if self._path != ':memory:':
+            fd = os.open(self._path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+            try:
+                os.fchmod(fd, 0o600)
+            finally:
+                os.close(fd)
         self._conn = sqlite3.connect(self._path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL;")
         self._conn.execute("PRAGMA foreign_keys=ON;")
-        self._conn.executescript(_SCHEMA)
-        self._migrate()
-        self._conn.commit()
-
-    def _migrate(self) -> None:
-        """Migrate existing databases to the current schema.
-
-        Handles two historical layouts:
-        - pre-currency: users/transactions lack a `currency` column.
-        - pre-composite-key: transactions use a global AUTOINCREMENT `id` primary key,
-          which we replace with a per-user (user_id, seq) composite key. Existing rows
-          are renumbered so each user's seq starts at 1 in chronological order.
-        """
-        # 1. users.currency (nullable; NULL = not yet chosen).
-        if "currency" not in {
-            row["name"] for row in self._conn.execute("PRAGMA table_info(users)")
-        }:
-            self._conn.execute("ALTER TABLE users ADD COLUMN currency TEXT")
-
-        tx_cols = {
-            row["name"] for row in self._conn.execute("PRAGMA table_info(transactions)")
-        }
-        # 2. transactions.currency (default IDR: first release recorded Rupiah only).
-        if "currency" not in tx_cols:
-            self._conn.execute(
-                "ALTER TABLE transactions ADD COLUMN currency TEXT NOT NULL DEFAULT 'IDR'"
-            )
-
-        # 3. Composite key migration: if `transactions` still has a global `id` PK
-        #    (and no `seq` column), rebuild it as (user_id, seq).
-        if "seq" not in tx_cols:
-            self._conn.execute("ALTER TABLE transactions RENAME TO transactions_old")
-            self._conn.executescript(_SCHEMA)  # creates the new transactions table
-            # Renumber per user in chronological (then created) order.
-            self._conn.execute(
-                """
-                INSERT INTO transactions
-                    (user_id, seq, kind, amount, currency, category, note,
-                     occurred_at, created_at)
-                SELECT
-                    user_id,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY user_id
-                        ORDER BY occurred_at ASC, id ASC
-                    ),
-                    kind, amount, currency, category, note, occurred_at, created_at
-                FROM transactions_old
-                """
-            )
-            self._conn.execute("DROP TABLE transactions_old")
+        self._conn.execute("PRAGMA secure_delete=ON;")
+        if self._path != ':memory:':
+            for suffix in ('-wal', '-shm'):
+                sidecar = Path(self._path + suffix)
+                if sidecar.exists():
+                    sidecar.chmod(0o600)
+        from .db_migrations import migrate
+        try:
+            with self.atomic():
+                migrate(self._conn, _SCHEMA)
+        except BaseException:
+            self._conn.close()
+            raise
 
     def close(self) -> None:
         with self._lock:
             self._conn.close()
 
     @contextmanager
-    def _cursor(self) -> Iterator[sqlite3.Cursor]:
+    def atomic(self) -> Iterator[None]:
+        """Serialize a transaction, nesting operations with rollback savepoints.
+
+        Callers may use _conn while inside this context to commit related durable
+        inbox/outbox changes together. Never perform network work in this context.
+        """
         with self._lock:
+            nested = self._atomic_depth > 0
+            self._conn.execute("SAVEPOINT finance_atomic" if nested else "BEGIN IMMEDIATE")
+            self._atomic_depth += 1
+            try:
+                yield
+                if nested:
+                    self._conn.execute("RELEASE SAVEPOINT finance_atomic")
+                else:
+                    self._conn.commit()
+            except BaseException:
+                if nested:
+                    self._conn.execute("ROLLBACK TO SAVEPOINT finance_atomic")
+                    self._conn.execute("RELEASE SAVEPOINT finance_atomic")
+                else:
+                    self._conn.rollback()
+                raise
+            finally:
+                self._atomic_depth -= 1
+
+    @contextmanager
+    def _cursor(self) -> Iterator[sqlite3.Cursor]:
+        with self.atomic():
             cur = self._conn.cursor()
             try:
                 yield cur
-                self._conn.commit()
             finally:
                 cur.close()
 
@@ -211,14 +212,15 @@ class Database:
         """
         if kind not in {"expense", "income"}:
             raise ValueError("kind must be 'expense' or 'income'")
-        if amount <= 0:
-            raise ValueError("amount must be a positive integer (minor units)")
+        if type(amount) is not int or not 0 < amount <= 9_223_372_036_854_775_807:
+            raise ValueError("amount must be a positive SQLite integer (minor units)")
         self.ensure_user(user_id)
         occurred = occurred_at or _utc_now_iso()
         created = _utc_now_iso()
         with self._cursor() as cur:
             cur.execute(
-                "SELECT COALESCE(MAX(seq), 0) + 1 FROM transactions WHERE user_id = ?",
+                "INSERT INTO user_sequences(user_id,last_seq) VALUES (?,1) "
+                "ON CONFLICT(user_id) DO UPDATE SET last_seq=last_seq+1 RETURNING last_seq",
                 (user_id,),
             )
             seq = int(cur.fetchone()[0])
@@ -256,8 +258,8 @@ class Database:
         Returns the updated row read back from the DB, or None if no such transaction
         exists for this user. Only the amount changes; other fields stay put.
         """
-        if amount <= 0:
-            raise ValueError("amount must be a positive integer (minor units)")
+        if type(amount) is not int or not 0 < amount <= 9_223_372_036_854_775_807:
+            raise ValueError("amount must be a positive SQLite integer (minor units)")
         with self._cursor() as cur:
             cur.execute(
                 "UPDATE transactions SET amount = ? WHERE user_id = ? AND seq = ?",

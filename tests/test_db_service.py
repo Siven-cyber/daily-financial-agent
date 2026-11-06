@@ -171,15 +171,15 @@ def test_seq_is_independent_per_user():
     assert b2.transaction.seq == 2
 
 
-def test_seq_reuses_after_delete():
+def test_seq_never_reuses_after_delete():
     svc = _fresh_service()
     r1 = svc.record_from_text(1, "makan 10rb")
     assert r1.transaction.seq == 1
     svc.delete(1, 1)
     r2 = svc.record_from_text(1, "makan 20rb")
-    # seq is computed as MAX(seq)+1 for the user; after deleting the only row, the
-    # next transaction is #1 again (per-user numbering, gaps may be reused).
-    assert r2.transaction.seq == 1
+    assert r2 is not None
+    # Persistent per-user counters must never reuse a deleted identifier.
+    assert r2.transaction.seq == 2
 
 
 if __name__ == "__main__":
