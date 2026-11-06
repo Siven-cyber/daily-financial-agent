@@ -58,6 +58,8 @@ Telegram -> durable inbox -> bounded OpenMinion worker
   `ubah terakhir kategori makan`. References are an explicit `#id`, an exact unique
   note (case-insensitive), or `last`/`terakhir` (highest owned sequence). Ambiguity
   requests clarification rather than guessing. One field changes per request.
+  English bounded forms also include `please change coffee category to food` and
+  `the last amount was wrong, it should be $7`.
   Additional bounded forms include `kategori pentol tadi ganti makanan`,
   `nominal #1 ganti 7rb`, and `yang barusan nominalnya salah, harusnya 7 ribu`.
   `tadi` on a named reference still requires one exact unique note, not a fuzzy
@@ -73,7 +75,8 @@ Telegram -> durable inbox -> bounded OpenMinion worker
   and amount-only.
 - **AI deletion requests, never AI deletion execution.** Additional bounded forms include
   `hapus pembelian pentol yang terakhir`, `yang barusan salah, hapus saja`, and
-  `tolong hapus transaksi nomor 3`. These normalize to the same trusted references;
+  `tolong hapus transaksi nomor 3`, `please delete transaction number 3`, and
+  `the last transaction was wrong, delete it`. These normalize to the same trusted references;
   original wording is retained for safety checks and AI intent validation.
   All forms still require a separate confirmation button before deletion.
   Use `hapus transaksi pentol terakhir`,
