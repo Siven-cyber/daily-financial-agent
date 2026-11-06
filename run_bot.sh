@@ -6,7 +6,6 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "${HERE}"
 
-source .venv/bin/activate
 # Export .env variables (skip blank/comment lines).
 set -a
 source .env
@@ -14,4 +13,4 @@ set +a
 
 export PYTHONPATH="${HERE}/src:${PYTHONPATH:-}"
 
-exec python -m finance_agent.bot
+exec "${HERE}/.venv/bin/python" -m finance_agent.bot;
