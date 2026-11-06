@@ -24,3 +24,6 @@ ecosystem.config.js
 *.sqlite3
 *.log
 backups/
+
+# Local test suite, excluded from publication by owner preference
+/tests/
