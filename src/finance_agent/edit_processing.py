@@ -15,15 +15,16 @@ class DeferredEdit(DeferredQuestion):
 
 
 def is_edit(text):
-    return bool(re.search(r'\b(edit|change|update|correct|ubah|ganti|koreksi|ralat|delete|hapus|remove|set|recategorize|recategorise|kategori|category|nominal|amount)\b', text, re.I))
+    return bool(re.search(r'\b(edit|change|update|correct|ubah|ganti|koreksi|ralat|delete|hapus|remove|set|recategorize|recategorise|kategori|category|nominal(?:nya)?|amount)\b', text, re.I))
 
 
 def prepare(bot, chat_id, user_id, lang, text):
-    match = re.fullmatch(r'(?:change|edit|update|ubah|ganti)\s+(.+?)\s+(to|ke|jadi|menjadi|category|kategori)\s+(.+?)\??', text, re.I)
-    if not match:
+    from .edit_language import parse_edit
+    parsed = parse_edit(text)
+    if parsed is None:
         bot._tg.send_message(chat_id, t(lang, 'edit_clarify'))
         return
-    reference, operation, value = match.groups()
+    reference, mode, value = parsed
     if re.fullmatch(r'#[1-9][0-9]*', reference):
         tx = bot._service.get_transaction(user_id, int(reference[1:]))
     elif reference.lower() in {'last', 'terakhir'}:
@@ -38,7 +39,6 @@ def prepare(bot, chat_id, user_id, lang, text):
     if tx is None:
         bot._tg.send_message(chat_id, t(lang, 'edit_clarify'))
         return
-    mode = 'category' if operation.lower() in {'category', 'kategori'} else 'amount'
     raise DeferredEdit((chat_id, user_id, lang, text, tx, (mode, value, reference)), {})
 
 

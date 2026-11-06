@@ -55,6 +55,11 @@ Telegram -> durable inbox -> bounded OpenMinion worker
   `ubah terakhir kategori makan`. References are an explicit `#id`, an exact unique
   note (case-insensitive), or `last`/`terakhir` (highest owned sequence). Ambiguity
   requests clarification rather than guessing. One field changes per request.
+  Additional bounded forms include `kategori pentol tadi ganti makanan`,
+  `nominal #1 ganti 7rb`, and `yang barusan nominalnya salah, harusnya 7 ribu`.
+  `tadi` on a named reference still requires one exact unique note, not a fuzzy
+  match; `yang barusan` means the latest owned ledger row and is rechecked before
+  completion. Questions, negations and conditionals are conservatively rejected.
   Category input is conservatively limited to one alphabetic word; AI chooses the
   stored category code. Unsupported edit/delete phrases are intercepted before
   recording. This is a bounded grammar, not arbitrary-language coverage.
