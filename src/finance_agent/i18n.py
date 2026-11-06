@@ -167,6 +167,18 @@ _TEXT: dict[str, dict[str, str]] = {
         "id": "Hapus transaksi #{id} ({amount}, {category})?",
         "en": "Delete transaction #{id} ({amount}, {category})?",
     },
+    "delete_done": {
+        "id": "Transaksi dihapus.",
+        "en": "Transaction deleted.",
+    },
+    "delete_cancelled": {
+        "id": "Penghapusan dibatalkan.",
+        "en": "Deletion cancelled.",
+    },
+    "delete_expired": {
+        "id": "Konfirmasi tidak berlaku atau transaksi sudah berubah. Gunakan /hapus untuk meminta konfirmasi baru.",
+        "en": "Confirmation is invalid or the transaction has changed. Use /delete to request a new confirmation.",
+    },
     "confirm_yes": {
         "id": "Ya, hapus",
         "en": "Yes, delete",

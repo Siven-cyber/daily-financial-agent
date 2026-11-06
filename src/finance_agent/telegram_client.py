@@ -64,6 +64,16 @@ class TelegramClient:
             {"callback_query_id": callback_query_id, "text": text},
         )
 
+    def fetch_updates(self, offset: int | None = None) -> list[dict[str, Any]]:
+        """Caller persists the batch before using a later acknowledgement offset."""
+        result = self._call('getUpdates', {
+            'timeout': self._timeout, 'offset': offset,
+            'allowed_updates': ['message', 'callback_query'],
+        })
+        if not result.get('ok'):
+            raise RuntimeError('Telegram polling rejected')
+        return result.get('result', [])
+
     def poll_updates(self) -> Iterator[dict[str, Any]]:
         """Yield updates via long polling, advancing the offset as it goes.
 

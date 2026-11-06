@@ -7,6 +7,7 @@ The authenticated Telegram user_id is the only identity used for data access.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Optional
 
 from .agent import FinanceAgent
@@ -59,9 +60,13 @@ class FinanceBot:
 
     def handle_update(self, update: dict) -> None:
         if "message" in update:
-            self._handle_message(update["message"])
+            message = update["message"]
+            if message.get("chat", {}).get("type") == "private":
+                self._handle_message(message)
         elif "callback_query" in update:
-            self._handle_callback(update["callback_query"])
+            callback = update["callback_query"]
+            if callback.get("message", {}).get("chat", {}).get("type") == "private":
+                self._handle_callback(callback)
 
     def _lang(self, user_id: int) -> str:
         return self._db.get_language(user_id) or "id"
@@ -90,6 +95,11 @@ class FinanceBot:
         lang = self._lang(user_id)
         currency = self._service.user_currency(user_id)
 
+        # Questions must never reach the transaction-writing fast path.
+        if self._looks_like_question(text):
+            self._answer_question(chat_id, user_id, lang, text)
+            return
+
         # A mismatched currency marker (e.g. "$5" for an IDR user) is ambiguous, so ask
         # the user to restate it instead of storing a wrong value.
         if detected_currency_mismatch(text, currency) is not None:
@@ -103,11 +113,6 @@ class FinanceBot:
         result = self._service.record_from_text(user_id, text)
         if result is not None:
             self._send_record_confirmation(chat_id, lang, result)
-            return
-
-        # Otherwise treat it as a question if it looks like one.
-        if self._looks_like_question(text):
-            self._answer_question(chat_id, user_id, lang, text)
             return
 
         self._tg.send_message(chat_id, t(lang, "not_understood"))
@@ -169,11 +174,17 @@ class FinanceBot:
                 t(lang, "currency_set", currency=get_currency(currency).code),
             )
             self._tg.send_message(chat_id, t(lang, "welcome"))
-        elif data.startswith("del:"):
+        elif data.startswith(("dyes:", "dno:")):
             lang = self._lang(user_id)
-            self._confirm_delete(chat_id, user_id, lang, data.split(":", 1)[1])
-        elif data.startswith("delcancel:"):
-            pass  # user cancelled; nothing to do
+            confirm = data.startswith("dyes:")
+            success = self._db.resolve_delete_confirmation(
+                data.split(":", 1)[1], user_id, chat_id,
+                message.get("message_id"), confirm=confirm,
+            )
+            key = "delete_done" if success and confirm else "delete_cancelled" if success else "delete_expired"
+            self._tg.send_message(chat_id, t(lang, key))
+        elif data.startswith(("del:", "delcancel:")):
+            self._tg.send_message(chat_id, t(self._lang(user_id), "delete_expired"))
 
     # ----- responses -------------------------------------------------------
 
@@ -286,11 +297,15 @@ class FinanceBot:
         if tx is None:
             self._tg.send_message(chat_id, t(lang, "not_found", id=tx_id))
             return
+        token = self._db.create_delete_confirmation(user_id, chat_id, tx_id)
+        if token is None:
+            self._tg.send_message(chat_id, t(lang, "not_found", id=tx_id))
+            return
         label = category_label(tx.category, lang)
         keyboard = {
             "inline_keyboard": [[
-                {"text": t(lang, "confirm_yes"), "callback_data": f"del:{tx_id}"},
-                {"text": t(lang, "confirm_cancel"), "callback_data": f"delcancel:{tx_id}"},
+                {"text": t(lang, "confirm_yes"), "callback_data": f"dyes:{token}"},
+                {"text": t(lang, "confirm_cancel"), "callback_data": f"dno:{token}"},
             ]]
         }
         self._tg.send_message(
@@ -304,15 +319,6 @@ class FinanceBot:
             ),
             reply_markup=keyboard,
         )
-
-    def _confirm_delete(self, chat_id: int, user_id: int, lang: str, tx_id_str: str) -> None:
-        tx_id = _parse_int(tx_id_str)
-        if tx_id is None:
-            return
-        if self._service.delete(user_id, tx_id):
-            self._tg.send_message(chat_id, t(lang, "deleted", id=tx_id))
-        else:
-            self._tg.send_message(chat_id, t(lang, "not_found", id=tx_id))
 
     def _answer_question(self, chat_id: int, user_id: int, lang: str, text: str) -> None:
         agent = self._get_agent()
@@ -342,12 +348,23 @@ class FinanceBot:
         me = self._tg.get_me()
         username = me.get("result", {}).get("username", "?")
         logger.info("bot online as @%s", username)
+        from .processing import UpdateProcessor
+        processor = UpdateProcessor(self)
+        from .queue_ops import QueueOperations
+        maintenance = QueueOperations(self._db)
+        next_cleanup = 0.0
         while True:
-            for update in self._tg.poll_updates():
-                try:
-                    self.handle_update(update)
-                except Exception as exc:  # noqa: BLE001
-                    logger.exception("update handling failed: %s", exc)
+            if time.monotonic() >= next_cleanup:
+                maintenance.cleanup()
+                next_cleanup = time.monotonic() + 60
+            # Resume durable work even when polling is temporarily unavailable.
+            processor.process_pending()
+            processor.deliver_pending()
+            try:
+                processor.receive(self._tg.fetch_updates(offset=processor.store.offset()))
+            except Exception as exc:
+                logger.warning("polling failed: %s", type(exc).__name__)
+                time.sleep(2)
 
 
 def main() -> int:
