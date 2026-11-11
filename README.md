@@ -53,6 +53,24 @@ local crash can still duplicate an alert. The monitor does not detect all stalle
 pending work or establish provider/Telegram availability. Alerts contain aggregate
 counts only, not transaction text, owner IDs or raw exception messages.
 
+## Aged pending inspection (not scheduled)
+
+    PYTHONPATH=src .venv/bin/python -m finance_agent.pending_health --db /absolute/path/finance.db --threshold-seconds 900
+
+This standalone read-only inspector reports aggregate pending ages and separates old
+ready work, scheduled retry backoff, and work blocked by an earlier pending/failed
+item using the application's ordering rules. The inclusive default threshold is
+15 minutes, an operational attention threshold rather than proof of a dead worker.
+The current adapter deadline is 180 seconds; repeated attempts and legitimate
+single-worker backlog can exceed the attention threshold.
+
+Outbox rows have no creation timestamp. Their age uses the associated inbox receipt
+as an explicit proxy and can overestimate reply age. Missing/invalid/future receipt
+timestamps are reported as unknown age, not healthy. Exit codes: 0 no aged pending,
+1 attention required, 2 inspection error. No payloads, identities or raw errors are
+printed. This command is not wired into scheduled alerts, does not change retry or
+discard state, and cannot distinguish active inference from a stalled worker.
+
 ## How it works
 
 ```
