@@ -6,7 +6,7 @@ like a normal person ("makan siang 25rb", "salary 6m"), and it records your inco
 expenses, answers questions, and sends monthly summaries. The bot speaks Indonesian and
 English; the user picks the language on first contact.
 
-Built for the Cortensor Hackathon #5. The project targets OpenMinion 0.1.18, checked against PyPI before the latest changes. Cortensor Portal (gemma4) and a custom OpenAI-compatible development backend are configurable. Live deployment is separate from source updates.
+Built for the Cortensor Hackathon #5. The project targets OpenMinion 0.1.20, verified with offline compatibility tests and bounded synthetic real-model acceptance. Cortensor Portal (gemma4) and a custom OpenAI-compatible development backend are configurable. Live deployment is separate from source updates.
 
 ## Read-only queue health check
 
