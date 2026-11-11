@@ -68,8 +68,15 @@ Outbox rows have no creation timestamp. Their age uses the associated inbox rece
 as an explicit proxy and can overestimate reply age. Missing/invalid/future receipt
 timestamps are reported as unknown age, not healthy. Exit codes: 0 no aged pending,
 1 attention required, 2 inspection error. No payloads, identities or raw errors are
-printed. This command is not wired into scheduled alerts, does not change retry or
-discard state, and cannot distinguish active inference from a stalled worker.
+printed. The monitor CLI supports explicit `--pending` mode with
+`--threshold-seconds 900`; dry-run remains the default. To send, add `--send` and
+use a SEPARATE private `--state` file, never the failed-work monitor's state.
+The pending state is bound to the database and threshold. Alerts deduplicate counts
+and classifications, not ever-increasing age; recovery sends once. Unknown-age
+pending rows also require attention. A threshold change requires a new state file
+or an explicitly reviewed reset, avoiding a false recovery under a new policy.
+This opt-in mode is not enabled in the production schedule. It does not change
+retry/discard state and cannot distinguish active inference from a stalled worker.
 
 ## How it works
 
