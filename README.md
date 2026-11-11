@@ -21,6 +21,24 @@ inspection failed. A missing database is not created. No failed work does not pr
 Telegram/provider availability or detect every stalled pending item. Scheduling and
 alert delivery are separate operational integrations, not installed by this command.
 
+## Queue monitoring core (not scheduled)
+
+`finance_agent.queue_monitor.check_and_notify(database, state_path, send)` builds on
+read-only queue inspection. The caller supplies an existing private state directory
+and a synchronous sender that raises on delivery failure. No Telegram transport,
+credentials, CLI scheduling or cron installation is included.
+
+It alerts when failed inbox/outbox counts change and sends one recovery notice when
+both return to zero. Unchanged counts are suppressed; changed item identities with
+the same counts are not detected. Inspection errors never masquerade as recovery.
+Corrupt or mismatched state fails closed. A private atomic state file acknowledges
+successful sends; an advisory lock serializes cooperating monitors. State and lock
+paths must not overlap the observed database or its SQLite sidecars. Send failures
+retain the previous acknowledgement for retry. A remote acceptance followed by a
+local crash can still duplicate an alert. The monitor does not detect all stalled
+pending work or establish provider/Telegram availability. Alerts contain aggregate
+counts only, not transaction text, owner IDs or raw exception messages.
+
 ## How it works
 
 ```
