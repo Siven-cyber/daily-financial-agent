@@ -25,8 +25,22 @@ alert delivery are separate operational integrations, not installed by this comm
 
 `finance_agent.queue_monitor.check_and_notify(database, state_path, send)` builds on
 read-only queue inspection. The caller supplies an existing private state directory
-and a synchronous sender that raises on delivery failure. No Telegram transport,
-credentials, CLI scheduling or cron installation is included.
+and a synchronous sender that raises on delivery failure. A separate CLI supports
+Telegram delivery, but no credentials or cron installation are included.
+
+Read-only default (no transport or monitor state writes):
+
+    PYTHONPATH=src .venv/bin/python -m finance_agent.queue_monitor_cli --db /absolute/path/finance.db
+
+Explicit notification mode requires `--send --state /private/existing/directory/monitor.json`
+and environment variables `FINANCE_MONITOR_BOT_TOKEN` and `FINANCE_MONITOR_CHAT_ID`.
+The CLI does not load `.env` automatically or reuse a customer chat destination.
+Provision credentials through a private service environment, never command arguments.
+The Telegram sender requires an accepted response with a message ID before recording
+acknowledgement. Exit codes are 0 for no failed work, 1 for failed work (even when
+an alert was sent/suppressed), and 2 for configuration, inspection, state or delivery
+failure. Dry-run does not preview deduplication state. Real Telegram delivery and
+scheduling require separate operational approval.
 
 It alerts when failed inbox/outbox counts change and sends one recovery notice when
 both return to zero. Unchanged counts are suppressed; changed item identities with
