@@ -19,6 +19,8 @@ def inspect_pending(path: Path, *, now=None, threshold_seconds=900) -> dict:
         conn.execute('PRAGMA query_only=ON')
         conn.execute('BEGIN')
         output = {}
+        reply_columns = {r[1] for r in conn.execute('PRAGMA table_info(reply_outbox)')}
+        has_timestamp = 'created_at' in reply_columns
         for label in ('inbox', 'outbox'):
             if label == 'inbox':
                 source = 'inbox_updates r'
@@ -26,16 +28,23 @@ def inspect_pending(path: Path, *, now=None, threshold_seconds=900) -> dict:
                 blocked = "EXISTS (SELECT 1 FROM inbox_updates b WHERE b.user_id=r.user_id AND b.update_id<r.update_id AND b.status IN ('pending','failed'))"
             else:
                 source = 'reply_outbox r LEFT JOIN inbox_updates i ON i.update_id=r.update_id'
-                age = 'i.created_at'
+                age = 'COALESCE(r.created_at,i.created_at)' if has_timestamp else 'i.created_at'
                 blocked = "EXISTS (SELECT 1 FROM reply_outbox b WHERE b.update_id=r.update_id AND b.ordinal<r.ordinal AND b.status IN ('pending','failed'))"
             # Fetch only operational metadata. Never select identities or payloads.
-            rows = conn.execute(f"SELECT {age},r.next_attempt_at,{blocked} FROM {source} WHERE r.status='pending'").fetchall()
+            actual = 'r.created_at IS NOT NULL' if label == 'outbox' and has_timestamp else '0'
+            rows = conn.execute(f"SELECT {age},r.next_attempt_at,{blocked},{actual} FROM {source} WHERE r.status='pending'").fetchall()
             stats: dict = dict(pending=len(rows), old_pending=0, old_ready=0,
                          old_backoff=0, old_blocked=0, unknown_age=0,
                          oldest_age_seconds=None,
                          age_basis='receipt' if label == 'inbox' else 'inbox_receipt_proxy')
+            if label == 'outbox':
+                count = sum(row[3] for row in rows)
+                stats['actual_timestamp_count'] = count
+                stats['receipt_proxy_count'] = len(rows)-count
+                stats['age_basis'] = ('mixed' if 0 < count < len(rows) else
+                                      'outbox_creation' if count else 'inbox_receipt_proxy')
             ages = []
-            for created, retry_at, is_blocked in rows:
+            for created, retry_at, is_blocked, _ in rows:
                 if (type(created) not in (int, float) or not math.isfinite(created)
                         or created > now):
                     stats['unknown_age'] += 1

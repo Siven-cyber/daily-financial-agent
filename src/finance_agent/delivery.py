@@ -51,6 +51,9 @@ class DeliveryStore:
                     payload = json.loads(row['payload'])
                     subject = payload.get('message') or payload.get('callback_query') or {}
                     db._conn.execute('UPDATE inbox_updates SET user_id=? WHERE update_id=?', (subject.get('from', {}).get('id'), row['update_id']))
+            reply_columns = {r[1] for r in db._conn.execute('PRAGMA table_info(reply_outbox)')}
+            if 'created_at' not in reply_columns:
+                db._conn.execute('ALTER TABLE reply_outbox ADD COLUMN created_at REAL')
             db._conn.execute('CREATE INDEX IF NOT EXISTS inbox_owner_order ON inbox_updates(user_id,update_id,status)')
             db._conn.execute('CREATE INDEX IF NOT EXISTS inbox_ready ON inbox_updates(status,next_attempt_at,update_id)')
             db._conn.execute('CREATE INDEX IF NOT EXISTS outbox_ready ON reply_outbox(status,next_attempt_at,id)')
@@ -91,7 +94,7 @@ class DeliveryStore:
 
     def enqueue(self, update_id: int, ordinal: int, method: str, payload: dict, user_id: int) -> None:
         """Caller must hold the same transaction as the financial mutation."""
-        self.db._conn.execute('INSERT OR IGNORE INTO reply_outbox(update_id,ordinal,method,payload,user_id) VALUES (?,?,?,?,?)', (update_id, ordinal, method, json.dumps(payload), user_id))
+        self.db._conn.execute('INSERT OR IGNORE INTO reply_outbox(update_id,ordinal,method,payload,user_id,created_at) VALUES (?,?,?,?,?,?)', (update_id, ordinal, method, json.dumps(payload), user_id, time.time()))
 
     def pending_replies(self, limit: int = 100) -> list[dict]:
         with self.db.atomic():

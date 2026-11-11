@@ -64,9 +64,11 @@ item using the application's ordering rules. The inclusive default threshold is
 The current adapter deadline is 180 seconds; repeated attempts and legitimate
 single-worker backlog can exceed the attention threshold.
 
-Outbox rows have no creation timestamp. Their age uses the associated inbox receipt
-as an explicit proxy and can overestimate reply age. Missing/invalid/future receipt
-timestamps are reported as unknown age, not healthy. Exit codes: 0 no aged pending,
+New outbox rows store their actual creation timestamp. Startup adds the nullable
+column idempotently without backfilling historical rows. Legacy NULL timestamps
+use the associated inbox receipt as an explicit proxy, which can overestimate reply
+age; unmigrated schemas remain readable. Output reports actual/proxy counts and
+mixed age bases. Invalid or future timestamps are unknown age, not healthy. Exit codes: 0 no aged pending,
 1 attention required, 2 inspection error. No payloads, identities or raw errors are
 printed. The monitor CLI supports explicit `--pending` mode with
 `--threshold-seconds 900`; dry-run remains the default. To send, add `--send` and

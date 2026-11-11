@@ -57,7 +57,7 @@ def _locked(database, state_path, send, now, threshold):
         parts = [f'Finance pending attention (threshold {threshold}s; not proof of a stalled worker).']
         for q in ('inbox', 'outbox'):
             parts.append(q+': '+', '.join(f'{f}={health[q][f]}' for f in FIELDS)+'.')
-        parts.append('Outbox age uses inbox receipt time as a proxy.')
+        parts.append('Outbox age basis: '+health['outbox']['age_basis']+'. Legacy rows may use inbox receipt time as a proxy.')
         message = '\n'.join(parts)
     try:
         send(message)
