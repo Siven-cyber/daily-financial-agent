@@ -8,6 +8,16 @@ English; the user picks the language on first contact.
 
 Built for the Cortensor Hackathon #5. The project targets OpenMinion 0.1.20, verified with offline compatibility tests and bounded synthetic real-model acceptance. Cortensor Portal (gemma4) and a custom OpenAI-compatible development backend are configurable. Live deployment is separate from source updates.
 
+## Demo and Telegram bot
+
+- [Watch the demo on YouTube](https://youtu.be/FBLGsRlKq_Y).
+- [Open Daily Financial Agent on Telegram](https://t.me/DailyFinancialAgent_bot).
+
+The hosted bot uses the configured external model provider to interpret financial
+messages. Use synthetic examples when trying the demo; do not send credentials or
+sensitive financial information. To evaluate with your own isolated state and bot,
+follow the setup instructions below.
+
 ## Read-only queue health check
 
 Run with the project interpreter and an explicit existing database path:
