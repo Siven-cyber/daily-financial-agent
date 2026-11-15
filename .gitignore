@@ -13,6 +13,7 @@ __pycache__/
 openminion/agents.json
 
 # Internal planning, remediation, and machine-specific operations
+DEMO.md
 OPERATIONS.md
 PHASE-B-DESIGN.md
 REMEDIATION.md
