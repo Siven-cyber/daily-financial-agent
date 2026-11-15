@@ -244,7 +244,7 @@ already passed Telegram/model acceptance. A fresh ledger containing only that ex
 must report monthly expense 20,000 IDR. Do not send the next financial change before
 its predecessor finishes. Inference latency and clarification are possible.
 
-See [the submission draft](SUBMISSION.md) and [demo script](DEMO.md) for evidence gates.
+See [FINDINGS.md](FINDINGS.md) for tested workflows, evidence boundaries and limitations.
 
 ## Verification and local tests
 

@@ -14,6 +14,7 @@ openminion/agents.json
 
 # Internal planning, remediation, and machine-specific operations
 DEMO.md
+SUBMISSION.md
 OPERATIONS.md
 PHASE-B-DESIGN.md
 REMEDIATION.md
