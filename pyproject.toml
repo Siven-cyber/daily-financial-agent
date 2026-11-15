@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Personal finance Telegram bot built on the OpenMinion 0.1 Python SDK"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = { file = "LICENSE" }
 dependencies = [
   "openminion==0.1.20",
 ]
