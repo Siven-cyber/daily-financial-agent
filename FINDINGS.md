@@ -1,9 +1,67 @@
 # Building Blocks Tested and What We Learned
 
-Submission notes for Cortensor Hackathon #5. Everything here was observed on real runs
-against OpenMinion 0.1.x with Cortensor Portal (gemma4) and, for faster iteration, an
-OpenAI-compatible endpoint (deepseek-v4-pro). Telemetry quoted below is from the local
-OpenMinion telemetry database.
+Submission notes for Cortensor Hackathon #5. Evidence is separated below into current
+source review, previously recorded acceptance, and historical SDK experiments. These
+are not interchangeable. No new provider call or Telegram delivery was performed as
+part of the submission-documentation preparation.
+
+## Current building blocks and evidence (OpenMinion 0.1.20)
+
+| Building block | Current use and evidence | Remaining limitation |
+|---|---|---|
+| APIRuntime and submit_turn | Active adapter constructs a shared runtime and waits on bounded turn handles. | A final full Telegram workflow still needs demo acceptance. |
+| Tool-free turns | Active recording uses answer() with an explicit empty tool allowlist. | Source intent and offline ingress checks do not prove adversarial model/tool enforcement. |
+| Caller-owned delivery | Adapter sends deliver=False and caller_handles_delivery=true; application owns inbox/outbox. | Telegram remote acceptance followed by a local crash can still duplicate delivery. |
+| Sessions | Versioned operation/caller-scoped keys. Prior synthetic same-session turns returned changed markers. | Session scoping is not the financial authorization boundary. |
+| Provider configuration | Portal/gemma4 and custom OpenAI-compatible options. Prior isolated acceptance observed outbound alias lv/auto. | An auto alias does not prove the underlying selected model. |
+| MCP and policy | Retained helper/configuration, historically exercised below. | Not the active recording path; no current MCP-execution claim. |
+
+The previous 0.1.20 isolated model acceptance recorded two fresh-context turns and
+validated proposals for `beli pentol 7rb` (7000 IDR, food) and `coffee $6.50`
+(650 USD cents, food). Outbound HTTP instrumentation observed the requested alias
+`lv/auto`. This is a maintainer-recorded bounded result, not a newly reproduced public
+artifact or a Telegram end-to-end demonstration. The public demo must establish its
+own selected backend and evidence. Offline application tests use synthetic fixtures;
+they do not establish real-model reliability.
+
+## Latest isolated acceptance
+
+The selected custom backend alias `lv/gpt-6.1-terra` passed a real SDK interpretation
+on 2026-11-15 in 5.35 seconds with a 180-second limit. Input `coffee 20rb` validated
+as expense 20000 IDR, category food. A direct application-service write and readback
+on a synthetic ledger produced one row and monthly expense 20000, income 0. Both
+observed outbound model fields matched the alias. This does not establish Telegram,
+integrated durable dispatch, or the underlying relay-selected model identity.
+
+Earlier attempts remain relevant failures: lv/auto returned provider HTTP 400;
+a raw Gemma4 baseline timed out; a subsequent Gemma4 SDK marker test completed in
+143.88 seconds with a 300-second budget but included a secondary HTTP 502. The
+purpose of that secondary call was not established. These observations support
+reporting provider variability, not claiming unrestricted reliability or SDK defects.
+
+## What we learned (actionable feedback)
+
+- Runtime completion is not financial completion. Validate proposals and confirm a
+  database readback before telling a user that a transaction was saved. SDK examples
+  should distinguish final text, tool execution and authoritative application effects.
+- Caller-managed transports need explicit delivery ownership. Document and demonstrate
+  deliver=False together with caller_handles_delivery and two consecutive fresh turns.
+- Make effective provider/model selection inspectable without exposing credentials.
+  Configuration intent and an automatic routing alias are not underlying-model proof.
+- Separate telemetry, message/session persistence and archives in privacy documentation.
+  A previous offline 0.1.20 bootstrap recorded local diagnostic events despite
+  telemetry_enabled=false; this bounded observation is not a claim about every runtime
+  path or a security vulnerability. Persistent-state controls need separate tests.
+- Show a small reproducible SDK sample with strict JSON validation, explicit tool
+  restrictions, cancellation and caller-owned delivery. This is more useful here than
+  adding unrelated delegation or memory solely for the hackathon.
+
+## Historical experiments: OpenMinion 0.1.2 to 0.1.4
+
+The remaining sections describe earlier Portal/gemma4 and custom OpenAI-compatible
+experiments. Historical telemetry supported those observations. They have not all
+been rerun on 0.1.20, and are not claims of current upstream defects. Issue status,
+maintainer acknowledgement and any fix PR must be checked before bonus claims.
 
 ## Building blocks tested
 
@@ -70,10 +128,14 @@ OpenMinion telemetry database.
 
 ## Design consequences
 
-Because of items 1, 2, and 6, the bot treats the model as a language helper, not a system
-of record. All writes and verification happen in `db.py`, keyed to the authenticated
-Telegram user id. The model interprets ambiguous language (via the MCP tool) and phrases
-summaries, but it never decides what is stored or whose data is touched.
+The original MCP workaround informed the design, but it is not today's recording
+path. Current recording requests a strict JSON proposal through the SDK answer adapter;
+the backend validates it, including amount/currency/direction, and keeps model-selected
+categories only when valid. Supported edits and deletion intents have their own guarded
+paths. Summary insights select allowlisted fact codes rendered by the backend; general
+questions use model prose grounded in supplied aggregates. All authoritative ledger
+access stays in the authenticated application backend. The model is not the system
+of record and never selects the owner.
 
 ## Upstream issues filed
 

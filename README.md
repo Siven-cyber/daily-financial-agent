@@ -184,8 +184,14 @@ database before the bot confirms it, so the bot never reports a save it cannot v
 
 ## Setup
 
-Requirements: Python 3.11+, a Telegram bot token from @BotFather, and a Cortensor Portal
-API key.
+Requirements: Python 3.11+, a Telegram bot token from @BotFather, and credentials for
+the selected model backend. Cortensor Portal is the default project target; Portal
+and Gemma4 are optional under the hackathon rules. The `lapakvip` backend option
+supports the configured custom OpenAI-compatible endpoint.
+
+Use a new private checkout, a separate demo bot and a synthetic ledger for evaluation.
+Do not point this checkout at a running bot's database or SDK state. Setup writes the
+project's agent configuration; it is not a production upgrade command.
 
 ```bash
 python3.11 -m venv .venv
@@ -194,11 +200,19 @@ pip install -e .
 
 cp .env.example .env
 # edit .env: TELEGRAM_BOT_TOKEN, CORTENSOR_API_KEY
+# Keep shell-sourced values quoted where needed. Never paste credentials into logs.
 
-# build the OpenMinion config (Cortensor Portal + MCP finance server + auto-approve rule)
-bash openminion/setup_agent.sh
+# Private SDK state for this new evaluation checkout only.
+umask 077
+export HOME="$PWD/.openminion/demo-home"
+mkdir -p "$HOME"
+export FINANCE_DB="$PWD/demo-finance.db"
 
-python -m finance_agent.bot
+# Build the config once in this fresh checkout. The script also registers the
+# historical MCP helper; the active finance path uses tool-free SDK turns.
+PY="$PWD/.venv/bin/python" bash openminion/setup_agent.sh
+
+bash run_bot.sh
 ```
 
 ## Commands
@@ -214,7 +228,32 @@ python -m finance_agent.bot
 
 Financial operations are restricted to private chats. Questions are routed before transaction parsing. Negative, multiple or ambiguous amounts are rejected. Transaction identifiers increase per user and are never reused after deletion. Production migration requires a consistent backup, isolated restore verification, and explicit operator approval.
 
-## Tests
+## Reproduce the useful workflow
+
+After setup, use the separate demo bot in a private Telegram chat:
+
+1. Send `/start`, select English, then IDR.
+2. Send `coffee 20rb` and wait for the final saved confirmation, not just the processing reply.
+3. Send `/recent` and verify the owned transaction is shown as IDR 20,000.
+4. Send `/summary` and verify the official monthly expense includes that transaction.
+   AI commentary is separate and can fail without removing the numeric summary.
+5. Ask `How much did I spend today?` and compare the answer with the synthetic ledger.
+
+Expected outcomes above are acceptance criteria, not a claim that this checkout has
+already passed Telegram/model acceptance. A fresh ledger containing only that expense
+must report monthly expense 20,000 IDR. Do not send the next financial change before
+its predecessor finishes. Inference latency and clarification are possible.
+
+See [the submission draft](SUBMISSION.md) and [demo script](DEMO.md) for evidence gates.
+
+## Verification and local tests
+
+The maintainer's test suite is intentionally local and is not part of the public
+repository. A public clone cannot run `unittest discover -s tests`; use the workflow
+above for functional reproduction. Installing the package or passing a dependency
+check alone does not demonstrate model inference or Telegram delivery.
+
+Maintainers with the private local suite can run:
 
 ```bash
 python -m unittest discover -s tests -v
@@ -224,12 +263,24 @@ python tests/test_db_service.py
 
 ## OpenMinion building blocks used
 
-- **Agent + runtime** (`openminion.api.APIRuntime`, `submit_turn`): one shared runtime per
-  process; streamed turns for both interpretation and question answering.
-- **MCP tools** (stdio server): a custom `interpret_transaction` tool exposed to the model.
-- **Action policy**: an auto-approve rule for the read-only interpret tool, so routine
-  interpretation runs without a prompt, while write/destructive tools would still prompt.
-- **Sessions**: one session id per Telegram user, isolating conversational state.
-- **Providers**: the Cortensor Portal preset (gemma4), configured without code changes.
+- **Runtime** (`openminion.api.APIRuntime`, `submit_turn`, turn-handle `result`):
+  a lazily constructed shared runtime, used on the bounded worker for model-backed
+  recording, supported edits, deletion-intent validation, questions and insights.
+- **Tool-free turn boundary**: the active `FinanceAgent.answer` adapter explicitly
+  supplies `allowed_tools=[]`. This expresses the intended restriction; current
+  adversarial runtime enforcement still requires a separate acceptance gate.
+- **Caller-owned delivery**: `deliver=False` and `caller_handles_delivery=true` leave
+  finance replies to the application's durable outbox, not the SDK transport.
+- **Sessions**: versioned session keys scope turns by application operation and caller.
+  Financial ownership is enforced by the authenticated bot/backend, not session names.
+- **Providers**: generated configuration selects Portal/gemma4 or a custom
+  OpenAI-compatible backend. Configuration intent alone does not prove the model used.
+- **Historical MCP experiment**: setup still registers a read-only stdio interpretation
+  helper and policy rule. The current recording path calls `interpretation.interpret`
+  through `answer`, not the legacy `FinanceAgent.interpret` MCP method. Do not claim
+  current production MCP execution based on the setup script.
 
-See `FINDINGS.md` for historical 0.1.3/0.1.4 observations and upstream issues. Those findings are not evidence that newer releases retain the same defects. Current finance tests on 0.1.18 are offline acceptance only, not proof of real-model/tool compatibility.
+See [FINDINGS.md](FINDINGS.md) for version-scoped observations, upstream reports,
+limitations and actionable feedback. The source pins OpenMinion 0.1.20; historical
+0.1.3/0.1.4 findings do not establish defects in 0.1.20. A newer SDK release is not
+required merely to prepare this submission.
