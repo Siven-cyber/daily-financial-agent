@@ -5,11 +5,24 @@ source review, previously recorded acceptance, and historical SDK experiments. T
 are not interchangeable. No new provider call or Telegram delivery was performed as
 part of the submission-documentation preparation.
 
+## Published demo
+
+- [Demo video](https://youtu.be/FBLGsRlKq_Y), published by the maintainer;
+  YouTube metadata reports public visibility and a duration of 3:38.
+- [Telegram bot](https://t.me/DailyFinancialAgent_bot).
+
+The video is available for reviewer inspection. Its publication is separate from
+an independently verified end-to-end acceptance run. The documentation review
+confirmed page access and metadata, not every video frame, the demonstrated
+runtime configuration, or correlated Telegram and database effects. The isolated
+acceptance results below retain their original scope; they are not evidence that
+the published recording used the same configuration or state.
+
 ## Current building blocks and evidence (OpenMinion 0.1.20)
 
 | Building block | Current use and evidence | Remaining limitation |
 |---|---|---|
-| APIRuntime and submit_turn | Active adapter constructs a shared runtime and waits on bounded turn handles. | A final full Telegram workflow still needs demo acceptance. |
+| APIRuntime and submit_turn | Active adapter constructs a shared runtime and waits on bounded turn handles. | Published demo linked above; independent end-to-end acceptance is not established by the isolated tests. |
 | Tool-free turns | Active recording uses answer() with an explicit empty tool allowlist. | Source intent and offline ingress checks do not prove adversarial model/tool enforcement. |
 | Caller-owned delivery | Adapter sends deliver=False and caller_handles_delivery=true; application owns inbox/outbox. | Telegram remote acceptance followed by a local crash can still duplicate delivery. |
 | Sessions | Versioned operation/caller-scoped keys. Prior synthetic same-session turns returned changed markers. | Session scoping is not the financial authorization boundary. |
