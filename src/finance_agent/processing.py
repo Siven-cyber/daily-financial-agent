@@ -230,6 +230,19 @@ class UpdateProcessor:
             payload = reply['payload']
             try:
                 if reply['method'] == 'sendMessage':
+                    from .i18n import t
+                    tokens = [button.get('callback_data', '')[5:]
+                              for row in payload.get('reply_markup', {}).get('inline_keyboard', [])
+                              for button in row if button.get('callback_data', '').startswith('dyes:')]
+                    lang = self.bot._db.get_language(reply['user_id']) or 'id'
+                    if any(not self.bot._db.delete_preview_valid(token, reply['user_id'], payload['chat_id'])
+                           for token in tokens):
+                        payload = {'chat_id': payload['chat_id'], 'text': t(lang, 'delete_clarify')}
+                        # Persist replacement before network I/O so retries cannot revive a stale preview.
+                        import json
+                        with self.bot._db.atomic():
+                            self.bot._db._conn.execute('UPDATE reply_outbox SET payload=? WHERE id=?',
+                                                       (json.dumps(payload), reply['id']))
                     result = self.bot._tg.send_message(**payload)
                     if not result.get('ok'):
                         raise RuntimeError('Telegram rejected response')
@@ -239,7 +252,15 @@ class UpdateProcessor:
                             for button in row:
                                 data = button.get('callback_data', '')
                                 if data.startswith('dyes:') and message_id is not None:
-                                    self.bot._db.bind_delete_confirmation(data[5:], reply['user_id'], payload['chat_id'], message_id)
+                                    bound = self.bot._db.bind_delete_confirmation(data[5:], reply['user_id'], payload['chat_id'], message_id)
+                                    if not bound:
+                                        ordinal = self.bot._db._conn.execute(
+                                            'SELECT COALESCE(MAX(ordinal),0)+1 FROM reply_outbox WHERE update_id=?',
+                                            (reply['update_id'],),
+                                        ).fetchone()[0]
+                                        self.store.enqueue(reply['update_id'], ordinal, 'sendMessage',
+                                                           {'chat_id': payload['chat_id'], 'text': t(lang, 'delete_clarify')},
+                                                           reply['user_id'])
                         self.store.sent(reply['id'])
                 else:
                     # Callback acknowledgement is best-effort and cannot gate writes.

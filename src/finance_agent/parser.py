@@ -193,7 +193,11 @@ def parse_message(
 
     lowered = stripped.lower()
     tokens = set(re.findall(r"[a-z]+", lowered))
-    kind = "income" if tokens & _INCOME_WORDS else "expense"
+    phrases = any(
+        re.search(r'\b' + r'\s+'.join(re.escape(word) for word in phrase.split()) + r'\b', lowered)
+        for phrase in _INCOME_WORDS if ' ' in phrase
+    )
+    kind = "income" if tokens & _INCOME_WORDS or phrases else "expense"
 
     # The note is the message with the matched amount text removed.
     note = (stripped[: match.start()] + stripped[match.end():]).strip()

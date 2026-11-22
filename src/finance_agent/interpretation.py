@@ -40,4 +40,11 @@ def interpret(agent, text: str, currency: str, session_id: str) -> dict:
         answer = answer[len('openminion:'):].strip()
     if answer.startswith('```json') and answer.endswith('```'):
         answer = answer[7:-3].strip()
-    return validate_proposal(json.loads(answer), text, currency)
+    def unique_fields(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError('Duplicate proposal field')
+            result[key] = value
+        return result
+    return validate_proposal(json.loads(answer, object_pairs_hook=unique_fields), text, currency)

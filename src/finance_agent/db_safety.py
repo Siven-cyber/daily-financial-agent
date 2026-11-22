@@ -20,6 +20,16 @@ class ConfirmationMixin:
             self._conn.execute('INSERT INTO deletion_confirmations(token,user_id,chat_id,seq,snapshot,expires_at) VALUES (?,?,?,?,?,?)', (token, user_id, chat_id, seq, value, time.time() + ttl_seconds))
             return token
 
+    def delete_preview_valid(self: Any, token: str, user_id: int, chat_id: int) -> bool:
+        """Check pending preview authority without renewing or consuming it."""
+        with self.atomic():
+            row = self._conn.execute(
+                "SELECT * FROM deletion_confirmations WHERE token=? AND user_id=? AND chat_id=? AND state='pending'",
+                (token, user_id, chat_id),
+            ).fetchone()
+            return bool(row is not None and row['expires_at'] > time.time()
+                        and snapshot(self._conn, user_id, row['seq']) == row['snapshot'])
+
     def bind_delete_confirmation(self: Any, token: str, user_id: int, chat_id: int, message_id: int) -> bool:
         if type(message_id) is not int:
             return False
