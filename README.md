@@ -130,8 +130,18 @@ Telegram -> durable inbox -> bounded OpenMinion worker
   ID/EN prose; model prose, numbers, unknown fields and duplicate fields are rejected.
   Empty ledgers support an explicit no-recorded-activity insight. Failure or timeout
   leaves the official summary available without recursively calling AI.
-  Summary periods use half-open WIB (`Asia/Jakarta`) calendar-month boundaries,
-  converted to UTC for queries; currencies are never combined or converted.
+  Summary periods use half-open calendar-month boundaries in each user's selected
+  IANA timezone, converted to UTC for queries; currencies are never combined or converted.
+  `/recent`, daily question context and budget periods use that same preference.
+  Select a zone with `/timezone America/New_York`, or search by city with
+  `/timezone New York` and confirm a result. `/zonawaktu` is an alias.
+  Telegram does not supply a timezone automatically. Onboarding asks after currency;
+  existing users remain unset and are prompted before free-text processing or reports.
+  Stored transaction instants remain UTC. Daylight saving follows the selected zone.
+  Changing timezone changes reporting boundaries, not historical transaction timestamps.
+  Internal service callers without a preference use UTC; the bot requests selection
+  rather than presenting reports in an assumed zone. Existing durable snapshots keep
+  their original reporting period and timezone.
   Only aggregates, currency, explicit month and selected language reach the summary
   model, not notes, owner identity or arbitrary historical category labels.
   Summary snapshots and official outbox chunks are committed before inference;

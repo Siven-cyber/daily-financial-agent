@@ -111,6 +111,9 @@ class Database(ConfirmationMixin):
         try:
             with self.atomic():
                 migrate(self._conn, _SCHEMA)
+                columns = {row[1] for row in self._conn.execute('PRAGMA table_info(users)')}
+                if 'timezone' not in columns:
+                    self._conn.execute('ALTER TABLE users ADD COLUMN timezone TEXT')
         except BaseException:
             self._conn.close()
             raise
@@ -192,6 +195,18 @@ class Database(ConfirmationMixin):
             cur.execute(
                 "UPDATE users SET currency = ? WHERE user_id = ?", (currency, user_id)
             )
+
+    def get_timezone(self, user_id: int) -> Optional[str]:
+        with self._cursor() as cur:
+            row = cur.execute('SELECT timezone FROM users WHERE user_id=?', (user_id,)).fetchone()
+            return row[0] if row else None
+
+    def set_timezone(self, user_id: int, value: str) -> None:
+        from .timezones import validate_zone
+        value = validate_zone(value)
+        with self.atomic():
+            self.ensure_user(user_id)
+            self._conn.execute('UPDATE users SET timezone=? WHERE user_id=?', (value, user_id))
 
     # ----- transactions ----------------------------------------------------
 
@@ -284,25 +299,28 @@ class Database(ConfirmationMixin):
         """Return [(category, total_amount)] for one kind and currency in a window."""
         with self._cursor() as cur:
             cur.execute(
-                "SELECT category, SUM(amount) AS total FROM transactions "
+                "SELECT category, amount FROM transactions "
                 "WHERE user_id = ? AND kind = ? AND currency = ? "
-                "AND occurred_at >= ? AND occurred_at < ? "
-                "GROUP BY category ORDER BY total DESC",
+                "AND occurred_at >= ? AND occurred_at < ? ORDER BY category",
                 (user_id, kind, currency, since_iso, until_iso),
             )
-            return [(r["category"], int(r["total"])) for r in cur.fetchall()]
+            totals: dict[str, int] = {}
+            for row in cur:
+                category = row['category']
+                totals[category] = totals.get(category, 0) + int(row['amount'])
+            return sorted(totals.items(), key=lambda item: (-item[1], item[0]))
 
     def total(
         self, user_id: int, *, kind: str, currency: str, since_iso: str, until_iso: str
     ) -> int:
         with self._cursor() as cur:
             cur.execute(
-                "SELECT COALESCE(SUM(amount), 0) AS total FROM transactions "
+                "SELECT amount FROM transactions "
                 "WHERE user_id = ? AND kind = ? AND currency = ? "
                 "AND occurred_at >= ? AND occurred_at < ?",
                 (user_id, kind, currency, since_iso, until_iso),
             )
-            return int(cur.fetchone()["total"])
+            return sum(int(row['amount']) for row in cur)
 
     # ----- budgets ---------------------------------------------------------
 

@@ -57,7 +57,7 @@ def select(agent, snapshot, lang, update_id):
             grouped[code] = grouped.get(code, 0) + amount
         safe['by_category'] = sorted(grouped.items())
         available = facts(safe, lang)
-        period = 'current month, timezone=Asia/Jakarta (WIB)'
+        period = 'current month, timezone=' + snapshot['timezone'] + ' (user-selected)'
     context = (f'language={lang}\nperiod={period}\n' +
                json.dumps(safe, ensure_ascii=True) + '\navailable_insight_codes=' +
                json.dumps(list(available)))

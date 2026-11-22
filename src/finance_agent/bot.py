@@ -93,6 +93,10 @@ class FinanceBot:
             return
 
         lang = self._lang(user_id)
+        if self._db.get_timezone(user_id) is None:
+            from .timezones import prompt
+            prompt(self, chat_id, lang)
+            return
         currency = self._service.user_currency(user_id)
 
         from .delete_processing import is_delete, prepare as prepare_delete
@@ -139,7 +143,14 @@ class FinanceBot:
         elif cmd in {"matauang", "currency", "mata_uang"}:
             self._prompt_currency(chat_id, lang)
         elif cmd == "help":
-            self._tg.send_message(chat_id, t(lang, "help"))
+            hint = '/timezone <IANA zone or city>' if lang == 'en' else '/timezone <zona IANA atau kota>'
+            self._tg.send_message(chat_id, t(lang, "help") + '\n' + hint)
+        elif cmd in {'timezone', 'zonawaktu'}:
+            from .timezones import command
+            command(self, chat_id, user_id, lang, text)
+        elif cmd in {'ringkasan', 'summary', 'terakhir', 'recent'} and self._db.get_timezone(user_id) is None:
+            from .timezones import prompt
+            prompt(self, chat_id, lang)
         elif cmd in {"ringkasan", "summary"}:
             from .summary_processing import prepare
             prepare(chat_id, user_id, lang)
@@ -176,6 +187,9 @@ class FinanceBot:
             # Continue onboarding with currency if not set yet.
             if self._db.get_currency(user_id) is None:
                 self._prompt_currency(chat_id, lang)
+            elif self._db.get_timezone(user_id) is None:
+                from .timezones import prompt
+                prompt(self, chat_id, lang)
             else:
                 self._tg.send_message(chat_id, t(lang, "welcome"))
         elif data.startswith("cur:"):
@@ -186,7 +200,14 @@ class FinanceBot:
                 chat_id,
                 t(lang, "currency_set", currency=get_currency(currency).code),
             )
-            self._tg.send_message(chat_id, t(lang, "welcome"))
+            if self._db.get_timezone(user_id) is None:
+                from .timezones import prompt
+                prompt(self, chat_id, lang)
+            else:
+                self._tg.send_message(chat_id, t(lang, "welcome"))
+        elif data.startswith('tz:'):
+            from .timezones import callback as timezone_callback
+            timezone_callback(self, chat_id, user_id, self._lang(user_id), data[3:])
         elif data.startswith(("dyes:", "dno:")):
             lang = self._lang(user_id)
             confirm = data.startswith("dyes:")
@@ -262,7 +283,8 @@ class FinanceBot:
         lines = [t(lang, "recent_title")]
         for tx in rows:
             sign = "+" if tx.kind == "income" else "-"
-            date = tx.occurred_at[:10]
+            from .timezones import local_date
+            date = local_date(self._db, user_id, tx.occurred_at)
             amount = format_amount(tx.amount, tx.currency)
             label = category_label(tx.category, lang)
             lines.append(f"#{tx.seq} {date} {sign}{amount} {label} ({tx.note})")
@@ -300,7 +322,7 @@ class FinanceBot:
 
     def _handle_delete(self, chat_id: int, user_id: int, lang: str, text: str) -> None:
         parts = text.split()
-        if len(parts) < 2:
+        if len(parts) != 2:
             self._tg.send_message(chat_id, t(lang, "delete_usage"))
             return
         tx_id = _parse_int(parts[1])

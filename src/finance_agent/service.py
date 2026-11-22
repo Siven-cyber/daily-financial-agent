@@ -91,7 +91,11 @@ class FinanceService:
         cap = self._db.get_budget(user_id, category)
         if not cap:
             return None
-        since, until = _month_window()
+        from .timezones import zone_for
+        local = datetime.now(timezone.utc).astimezone(zone_for(self._db, user_id))
+        start, end = _month_window(local)
+        since, until = (datetime.fromisoformat(value).astimezone(timezone.utc).isoformat(timespec='seconds')
+                        for value in (start, end))
         # Budget is tracked in the user's currency.
         by_cat = dict(
             self._db.sum_by_category(
@@ -145,9 +149,9 @@ class FinanceService:
         return self._db.get_transaction(user_id, tx_id)
 
     def month_summary(self, user_id: int, *, now: Optional[datetime] = None) -> dict:
-        """Summary for the user's currency and explicit WIB calendar month."""
-        from zoneinfo import ZoneInfo
-        local = (now or datetime.now(timezone.utc)).astimezone(ZoneInfo('Asia/Jakarta'))
+        """Summary for the user's currency and selected local calendar month."""
+        from .timezones import zone_for
+        local = (now or datetime.now(timezone.utc)).astimezone(zone_for(self._db, user_id))
         currency = self.user_currency(user_id)
         start, end = _month_window(local)
         since, until = (datetime.fromisoformat(v).astimezone(timezone.utc).isoformat(timespec='seconds')
@@ -166,7 +170,7 @@ class FinanceService:
             "expense": expense,
             "income": income,
             "by_category": by_cat,
-            "timezone": "Asia/Jakarta",
+            "timezone": str(local.tzinfo),
             "month_period": local.strftime('%Y-%m'),
             "since_utc": since,
             "until_utc": until,
@@ -179,8 +183,8 @@ class FinanceService:
         answers in the right currency without doing any conversion.
         """
         from datetime import timedelta
-        from zoneinfo import ZoneInfo
-        local = (now or datetime.now(timezone.utc)).astimezone(ZoneInfo('Asia/Jakarta'))
+        from .timezones import zone_for
+        local = (now or datetime.now(timezone.utc)).astimezone(zone_for(self._db, user_id))
         day_start = local.replace(hour=0, minute=0, second=0, microsecond=0)
         month_start, month_end = _month_window(local)
         currency = self.user_currency(user_id)
@@ -195,7 +199,7 @@ class FinanceService:
         }
         daily = {kind: self._db.total(user_id, kind=kind, currency=currency, since_iso=utc(day_start), until_iso=utc(day_start + timedelta(days=1))) for kind in ('expense', 'income')}
         lines = [
-            'timezone=Asia/Jakarta',
+            f'timezone={local.tzinfo}',
             f"today_date={local.date().isoformat()}",
             f"month_period={local.strftime('%Y-%m')}",
             f"today_expense={format_amount(daily['expense'], currency)}",
