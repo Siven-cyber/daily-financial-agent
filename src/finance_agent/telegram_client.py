@@ -7,6 +7,8 @@ dependency so the project stays easy to audit and install.
 from __future__ import annotations
 
 import json
+import logging
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -22,6 +24,8 @@ class TelegramClient:
         self._base = f"{_API_BASE}{token}"
         self._timeout = timeout
         self._offset: Optional[int] = None
+        self._poll_failures = 0
+        self._logger = logging.getLogger(__name__)
 
     def _call(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
         url = f"{self._base}/{method}"
@@ -66,12 +70,31 @@ class TelegramClient:
 
     def fetch_updates(self, offset: int | None = None) -> list[dict[str, Any]]:
         """Caller persists the batch before using a later acknowledgement offset."""
-        result = self._call('getUpdates', {
-            'timeout': self._timeout, 'offset': offset,
-            'allowed_updates': ['message', 'callback_query'],
-        })
-        if not result.get('ok'):
-            raise RuntimeError('Telegram polling rejected')
+        started = time.monotonic()
+        try:
+            result = self._call('getUpdates', {
+                'timeout': self._timeout, 'offset': offset,
+                'allowed_updates': ['message', 'callback_query'],
+            })
+            if not result.get('ok'):
+                raise RuntimeError('Telegram polling rejected')
+        except Exception as exc:
+            self._poll_failures += 1
+            status = exc.code if isinstance(exc, urllib.error.HTTPError) else None
+            status = status if type(status) is int and 100 <= status <= 599 else 'unknown'
+            self._logger.warning(
+                'event=telegram.poll.failed error_class=%s http_status=%s '
+                'elapsed_ms=%d consecutive_failures=%d',
+                type(exc).__name__, status,
+                round((time.monotonic() - started) * 1000), self._poll_failures,
+            )
+            raise
+        if self._poll_failures:
+            self._logger.info(
+                'event=telegram.poll.recovered elapsed_ms=%d previous_failures=%d',
+                round((time.monotonic() - started) * 1000), self._poll_failures,
+            )
+        self._poll_failures = 0
         return result.get('result', [])
 
     def poll_updates(self) -> Iterator[dict[str, Any]]:
