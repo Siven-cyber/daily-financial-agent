@@ -17,7 +17,7 @@ def validate_proposal(proposal: dict, text: str, currency: str) -> dict:
         raise ValueError('Transaction direction contradicts source text')
     if proposal['currency'] != currency or proposal['kind'] not in {'expense', 'income'}:
         raise ValueError('Invalid currency or kind')
-    if proposal['category'] not in CATEGORIES:
+    if not isinstance(proposal['category'], str) or proposal['category'] not in CATEGORIES:
         raise ValueError('Invalid category')
     if not isinstance(proposal['note'], str) or len(proposal['note']) > 1000:
         raise ValueError('Invalid note')

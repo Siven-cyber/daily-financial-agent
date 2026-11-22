@@ -170,6 +170,9 @@ def parse_message(
     if len(matches) != 1 or re.search(r"[-−]\s*\d", stripped):
         return None
     match = matches[0]
+    # Reject partial numbers rather than silently dropping decimal punctuation.
+    if match.start() > 0 and stripped[match.start() - 1] in '.,':
+        return None
     if match.end() < len(stripped) and stripped[match.end()].isalnum():
         return None
 
@@ -220,6 +223,9 @@ def parse_amount(text: str, user_currency: str = "IDR") -> Optional[int]:
     if len(matches) != 1 or re.search(r"[-−]\s*\d", stripped):
         return None
     match = matches[0]
+    # Reject partial numbers rather than silently dropping decimal punctuation.
+    if match.start() > 0 and stripped[match.start() - 1] in '.,':
+        return None
     if match.end() < len(stripped) and stripped[match.end()].isalnum():
         return None
     suffix = (match.group("suf") or "").lower()

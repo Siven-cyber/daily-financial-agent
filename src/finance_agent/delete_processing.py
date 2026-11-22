@@ -12,14 +12,20 @@ class DeferredDelete(DeferredQuestion):
 
 
 def is_delete(text):
-    return bool(re.search(r'\b(delete[ds]?|deleting|remove[ds]?|removing|erase[ds]?|erasing|(?:meng|di)?hapus(?:kan)?)\b', text, re.I))
+    return bool(re.search(r'\b(delete[ds]?|deleting|remove[ds]?|removing|erase[ds]?|erasing|(?:penghapusan|(?:meng|di)?hapus(?:kan|lah)?))\b', text, re.I))
 
 
 def resolve(db, user_id, reference):
     """Resolve only explicit IDs, last, exact notes, or last exact-note match."""
     mode, value = reference
     if mode == 'seq':
-        return db.get_transaction(user_id, int(value))
+        digits = str(value)
+        if not re.fullmatch(r'[1-9][0-9]{0,18}', digits):
+            return None
+        seq = int(digits)
+        if seq > 9_223_372_036_854_775_807:
+            return None
+        return db.get_transaction(user_id, seq)
     if mode == 'last':
         rows = db.recent_transactions(user_id, 1)
         return rows[0] if rows else None

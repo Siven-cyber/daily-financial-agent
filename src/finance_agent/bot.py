@@ -31,10 +31,10 @@ _QUESTION_PREFIXES = (
 def _parse_int(text: str) -> Optional[int]:
     """Parse a positive integer id; return None if invalid."""
     text = text.strip()
-    if not text.isdigit():
+    if not text.isascii() or not text.isdigit() or len(text) > 19:
         return None
     value = int(text)
-    return value if value > 0 else None
+    return value if 0 < value <= 9_223_372_036_854_775_807 else None
 
 
 class FinanceBot:
