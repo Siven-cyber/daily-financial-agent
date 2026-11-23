@@ -65,6 +65,17 @@ def select(agent, snapshot, lang, update_id):
         'Choose one or two useful explanatory insights from available_insight_codes. '
         'Return ONLY {"insights":["code"]}. No additional fields, tools, prose or numbers.',
         context=context, session_id=f'summary:{update_id}')
+    try:
+        return render_selection(answer, available, lang)
+    except (ValueError, TypeError, AttributeError) as exc:
+        raise InvalidSelection() from exc
+
+
+class InvalidSelection(ValueError):
+    """Model output is unusable, unlike a provider/runtime failure."""
+
+
+def render_selection(answer, available, lang):
     answer = answer.strip()
     if answer.startswith('openminion:'):
         answer = answer[len('openminion:'):].strip()
@@ -94,7 +105,8 @@ def submit(processor, update, request):
     chat_id, user_id, lang = request.args_to_call
     update_id = update['update_id']
     with bot._db.atomic():
-        bot._db._conn.execute('CREATE TABLE IF NOT EXISTS summary_snapshots (update_id INTEGER PRIMARY KEY, snapshot TEXT NOT NULL, lang TEXT NOT NULL, ordinal INTEGER NOT NULL)')
+        from .commentary_store import migrate
+        migrate(bot._db)
         row = bot._db._conn.execute('SELECT * FROM summary_snapshots WHERE update_id=?', (update_id,)).fetchone()
         if row is None:
             recent = getattr(request, 'recent', False)
@@ -117,38 +129,80 @@ def submit(processor, update, request):
             for ordinal, (method, payload) in enumerate(collector.calls):
                 store.enqueue(update_id, ordinal, method, payload, user_id)
             ordinal = len(collector.calls)
-            bot._db._conn.execute('INSERT INTO summary_snapshots VALUES (?,?,?,?)',
-                                 (update_id, json.dumps(snapshot), lang, ordinal))
+            from .commentary_store import routing
+            origin = routing(update)
+            if origin is None or origin[:2] != (user_id, chat_id):
+                raise ValueError('MissingRouting')
+            bot._db._conn.execute(
+                'INSERT INTO summary_snapshots(update_id,snapshot,lang,ordinal,user_id,chat_id,reply_parameters,kind) VALUES (?,?,?,?,?,?,?,?)',
+                (update_id, json.dumps(snapshot), lang, ordinal, user_id, chat_id,
+                 origin[2], 'recent' if recent else 'summary'))
+        store.complete(update_id)
+
+
+def schedule(processor):
+    """Admit optional work only after foreground processing, without ledger reads."""
+    conn = processor.bot._db._conn
+    columns = {r[1] for r in conn.execute('PRAGMA table_info(summary_snapshots)')}
+    if not columns:
+        return
+    if 'status' not in columns:
+        from .commentary_store import migrate
+        migrate(processor.bot._db)
+    import time
+    rows = conn.execute("SELECT * FROM summary_snapshots WHERE status='pending' AND next_attempt_at<=? ORDER BY update_id", (time.time(),)).fetchall()
+    for row in rows:
+        update_id = row['update_id']
+        if update_id in getattr(processor, '_summary_results', {}):
+            continue
+        if processor.questions is not None:
+            if update_id in processor.questions.jobs:
+                continue
+            if len(processor.questions.jobs) >= processor.questions.capacity:
+                break
+        snapshot, lang = json.loads(row['snapshot']), row['lang']
+        chat_id, user_id = row['chat_id'], row['user_id']
+        def compute(snapshot=snapshot, lang=lang, chat_id=chat_id, user_id=user_id, update_id=update_id):
+            text, error = None, None
+            try:
+                if processor.stopping.is_set():
+                    raise RuntimeError('Stopping')
+                agent = processor.bot._get_agent()
+                if processor.stopping.is_set() or agent is None:
+                    raise RuntimeError('Unavailable')
+                text = select(agent, snapshot, lang, update_id)
+            except InvalidSelection:
+                pass  # Invalid selections are terminal official-only outcomes.
+            except Exception as exc:
+                error = type(exc).__name__
+            return chat_id, user_id, lang, {'_summary': True, 'text': text, 'error': error}
+        if processor.questions is None:
+            if not hasattr(processor, '_summary_results'):
+                processor._summary_results = {}
+            processor._summary_results[update_id] = compute()
+            processor._collect_summary_results()
         else:
-            snapshot, lang = json.loads(row['snapshot']), row['lang']
-    def compute():
-        text = None
-        try:
-            if processor.stopping.is_set():
-                raise RuntimeError('Stopping')
-            agent = bot._get_agent()
-            if processor.stopping.is_set() or agent is None:
-                raise RuntimeError('Unavailable')
-            text = select(agent, snapshot, lang, update_id)
-        except Exception:
-            # The official summary is already durable; never recursively request AI.
-            pass
-        return chat_id, user_id, lang, {'_summary': True, 'text': text}
-    if processor.questions is None:
-        complete(processor, update_id, *compute())
-    else:
-        processor.questions.submit(update_id, compute)
+            processor.questions.submit(update_id, compute)
+        break  # At most one optional admission per foreground pass.
 
 
 def complete(processor, update_id, chat_id, user_id, lang, answer):
     with processor.bot._db.atomic():
         conn = processor.bot._db._conn
-        status = conn.execute('SELECT status FROM inbox_updates WHERE update_id=?', (update_id,)).fetchone()
-        if status is None or status[0] != 'pending':
+        row = conn.execute('SELECT * FROM summary_snapshots WHERE update_id=?', (update_id,)).fetchone()
+        if row is None or row['status'] != 'pending':
             return
-        row = conn.execute('SELECT ordinal FROM summary_snapshots WHERE update_id=?', (update_id,)).fetchone()
+        if answer.get('error'):
+            import time
+            attempts = row['attempts'] + 1
+            conn.execute('UPDATE summary_snapshots SET attempts=?,next_attempt_at=?,last_error=?,status=? WHERE update_id=?',
+                         (attempts, time.time() + min(300, 2 ** min(attempts, 8)), answer['error'],
+                          'failed' if attempts >= 8 else 'pending', update_id))
+            return
         if answer['text']:
-            processor.store.enqueue(update_id, row[0], 'sendMessage',
-                                    {'chat_id': chat_id, 'text': answer['text']}, user_id)
-        processor.store.complete(update_id)
-        conn.execute('DELETE FROM summary_snapshots WHERE update_id=?', (update_id,))
+            payload = {'chat_id': row['chat_id'], 'text': answer['text']}
+            reply = json.loads(row['reply_parameters'])
+            if reply:
+                payload['reply_parameters'] = reply
+            processor.store.enqueue(update_id, row['ordinal'], 'sendMessage', payload, row['user_id'])
+        conn.execute("UPDATE summary_snapshots SET status='done',snapshot='{}',reply_parameters=NULL,chat_id=NULL,last_error=NULL WHERE update_id=?", (update_id,))

@@ -76,9 +76,17 @@ class UpdateProcessor:
 
     def _collect_answers(self) -> None:
         if self.questions is None:
+            self._collect_summary_results()
             return
         from .i18n import t
+        if not hasattr(self, '_summary_results'):
+            self._summary_results = {}
         for update_id, future in self.questions.completed():
+            if not future.cancelled() and future.exception() is None:
+                result = future.result()
+                if isinstance(result, tuple) and len(result) == 4 and isinstance(result[3], dict) and result[3].get('_summary'):
+                    self._summary_results[update_id] = result
+                    continue
             try:
                 chat_id, user_id, lang, answer = future.result()
                 collector = ReplyCollector()
@@ -112,6 +120,17 @@ class UpdateProcessor:
                     self.store.complete(update_id)
             except Exception as exc:
                 self.store.fail_update(update_id, exc)
+        self._collect_summary_results()
+
+    def _collect_summary_results(self):
+        for update_id, result in list(getattr(self, '_summary_results', {}).items()):
+            try:
+                from .summary_processing import complete as complete_summary
+                complete_summary(self, update_id, *result)
+            except Exception as exc:
+                logger.warning('event=commentary.collect_failed error_class=%s', type(exc).__name__)
+                continue
+            del self._summary_results[update_id]
 
     def _complete_record(self, update_id, chat_id, user_id, lang, proposal):
         from .i18n import t
@@ -244,6 +263,8 @@ class UpdateProcessor:
             finally:
                 self.bot._tg = real_transport
                 self.bot._answer_question = answer_question
+        from .summary_processing import schedule
+        schedule(self)
 
     def _prepare_delivery(self, reply):
         from .i18n import t

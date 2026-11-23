@@ -29,7 +29,7 @@ def main(argv=None) -> int:
     parser.add_argument('--db', required=True, type=Path)
     parser.add_argument('--apply', action='store_true', help='Authorize a database mutation')
     parser.add_argument('action', choices=['list', 'retry', 'discard', 'cleanup'])
-    parser.add_argument('--queue', choices=['inbox', 'outbox'], default='inbox')
+    parser.add_argument('--queue', choices=['inbox', 'outbox', 'commentary'], default='inbox')
     parser.add_argument('--id', type=int)
     args = parser.parse_args(argv)
     if args.action != 'list' and not args.apply:

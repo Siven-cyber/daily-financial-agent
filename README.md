@@ -191,11 +191,28 @@ Telegram -> durable inbox -> bounded OpenMinion worker
   their original reporting period and timezone.
   Only aggregates, currency, explicit month and selected language reach the summary
   model, not notes, owner identity or arbitrary historical category labels.
-  Summary snapshots and official outbox chunks are committed before inference;
-  restart/retry reuses the snapshot and stable ordinals, then removes it on completion.
-  The bounded single worker performs no SQL or Telegram calls. Inference can consume
-  provider credits and take up to the adapter's 180-second deadline. Other owners'
-  deterministic commands continue while it runs. A crash before completion may repeat
+  Summary/recent snapshots, official outbox chunks and inbox completion commit
+  atomically before optional inference. Later same-owner deterministic commands can
+  proceed; records, questions, edits and deletes retain their existing owner barriers.
+  Commentary has its own durable status, eight-attempt runtime retry/backoff and
+  reserved ordinal. Invalid selections finish official-only. Retry/restart never
+  rebuilds a snapshot from changed ledger or preferences. Original reply routing is
+  retained before inbox redaction. Terminal jobs retain identity but redact snapshot
+  and routing. Completed model results survive local commit failure in memory.
+  At most one optional job is admitted after each foreground pass. The existing
+  single model worker performs no SQL or Telegram calls; a running optional call
+  still delays later AI calls (no new model concurrency). Inference can consume
+  provider credits and take up to the adapter's 180-second deadline.
+  The schema extension is transactional/idempotent and runs only on bot processing,
+  never module import or monitor inspection. Legacy routing is backfilled only from
+  retained validated private inbox messages; missing routing fails closed and failed
+  legacy work stays failed. Production schema activation requires separate approval
+  and backup/rollback inspection. The ledger `user_version` remains unchanged.
+  Operators can use `queue_cli list --queue commentary`, then explicitly authorized
+  `retry`/`discard --queue commentary --id ... --apply` with the existing `--db` option.
+  Pending/failed snapshots are never automatically deleted; normal cleanup redacts
+  terminal jobs only. Old-schema monitor and existing inbox/outbox inspection remain
+  compatible. A crash before completion may repeat
   inference, but not create duplicate outbox rows. Telegram itself has no idempotency
   key: a crash after remote acceptance but before local acknowledgement can still
   redeliver a message (existing at-least-once transport limitation).
