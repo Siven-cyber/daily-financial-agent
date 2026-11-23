@@ -65,6 +65,18 @@ Financial mutations remain deduplicated; remote acceptance before local result
 commit/crash or shutdown retains an at-least-once duplicate-message window.
 This change does not alter the AI queue or establish real Telegram latency.
 
+## Read-only optional commentary health
+
+Inspect optional summary/recent jobs separately from the existing foreground monitors:
+
+    PYTHONPATH=src .venv/bin/python -m finance_agent.commentary_health --db /absolute/path/finance.db
+
+The command opens SQLite read-only and reports status counts without snapshots,
+routing or user content. Exit codes: 0 for no failed commentary, 1 for failed work,
+and 2 for inspection errors, missing commentary tables or legacy schemas. Pending
+jobs are reported but not classified as stalled. This command installs no scheduler
+or alerts and does not change existing foreground monitor contracts.
+
 ## Read-only queue health check
 
 Run with the project interpreter and an explicit existing database path:
