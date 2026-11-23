@@ -143,8 +143,7 @@ class FinanceBot:
         elif cmd in {"matauang", "currency", "mata_uang"}:
             self._prompt_currency(chat_id, lang)
         elif cmd == "help":
-            hint = '/timezone <IANA zone or city>' if lang == 'en' else '/timezone <zona IANA atau kota>'
-            self._tg.send_message(chat_id, t(lang, "help") + '\n' + hint)
+            self._tg.send_message(chat_id, t(lang, "help"))
         elif cmd in {'timezone', 'zonawaktu'}:
             from .timezones import command
             command(self, chat_id, user_id, lang, text)

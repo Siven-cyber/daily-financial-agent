@@ -56,6 +56,7 @@ _TEXT: dict[str, dict[str, str]] = {
             "- /hapus <id> : hapus transaksi\n"
             "- /bahasa : ganti bahasa\n"
             "- /matauang : ganti mata uang\n"
+            "- /timezone <zona IANA atau kota> : ganti zona waktu\n"
             "- /help : bantuan ini"
         ),
         "en": (
@@ -67,6 +68,7 @@ _TEXT: dict[str, dict[str, str]] = {
             "- /delete <id> : delete a transaction\n"
             "- /language : change language\n"
             "- /currency : change currency\n"
+            "- /timezone <IANA zone or city> : change timezone\n"
             "- /help : this help"
         ),
     },
