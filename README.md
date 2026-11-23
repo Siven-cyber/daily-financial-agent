@@ -77,6 +77,38 @@ and 2 for inspection errors, missing commentary tables or legacy schemas. Pendin
 jobs are reported but not classified as stalled. This command installs no scheduler
 or alerts and does not change existing foreground monitor contracts.
 
+## Optional commentary alerts (standalone, opt-in)
+
+Dry-run by default, with no state/lock writes or network calls:
+
+    PYTHONPATH=src .venv/bin/python -m finance_agent.commentary_monitor_cli --db /absolute/path/finance.db
+
+Explicit notification mode requires an existing private state directory, a new
+commentary-only state path, and environment variables `FINANCE_MONITOR_BOT_TOKEN`
+and `FINANCE_MONITOR_CHAT_ID` (explicit admin destination):
+
+    PYTHONPATH=src .venv/bin/python -m finance_agent.commentary_monitor_cli --db /absolute/path/finance.db --notify --state /private/monitor/commentary.json
+
+`--state` is valid only with `--notify`. Never reuse foreground/pending monitor
+state. The strict state schema binds `kind=commentary`, canonical database path
+and one last-successfully-notified failed count. Corrupt, old or mismatched state
+fails closed. A private 0600 lock serializes inspection, sending and atomic/fsynced
+state acknowledgement; DB/sidecar path collisions and direct symlinks are rejected.
+Use a trusted private existing directory, not a directory writable by other users.
+
+Only failed-count changes send aggregate alerts, with one recovery after a
+successfully sent failure alert. Initial healthy observations, unavailable/legacy
+inspection and inspection errors never send recovery. Failed sends leave the
+acknowledged count unchanged for retry. Remote acceptance before local state
+commit/crash can duplicate a notification (at-least-once delivery). Outputs contain
+aggregate status/counts and exception class only, not job payloads or error text.
+Exit codes are 0 healthy, 1 failed commentary, 2 configuration/state/inspection/send
+errors (including unavailable/legacy schemas). Pending counts do not imply a stall.
+
+This optional CLI installs no schedule, performs no migrations or queue mutations,
+and leaves existing foreground/pending scheduled modules and launchers unchanged.
+Source and synthetic fake-transport tests do not establish live alert delivery.
+
 ## Read-only queue health check
 
 Run with the project interpreter and an explicit existing database path:
