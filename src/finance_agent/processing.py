@@ -39,16 +39,28 @@ class ReplyCollector:
 
 
 class UpdateProcessor:
-    def __init__(self, bot: Any, async_questions: bool = False) -> None:
+    def __init__(self, bot: Any, async_questions: bool = False, *, async_delivery: bool = False) -> None:
         self.bot = bot
         self.store = DeliveryStore(bot._db)
         from .question_worker import QuestionWorker
-        self.questions = QuestionWorker() if async_questions else None
+        self.questions = None
+        self.outbound = None
+        self.transport = bot._tg
         import threading
         self.stopping = threading.Event()
+        try:
+            self.questions = QuestionWorker() if async_questions else None
+            if async_delivery:
+                from .outbound import OutboundWorker
+                self.outbound = OutboundWorker(self.transport)
+        except BaseException:
+            self.close()
+            raise
 
     def close(self) -> None:
         self.stopping.set()
+        if self.outbound is not None:
+            self.outbound.close()
         agent = getattr(self.bot, '_agent', None)
         try:
             if agent is not None:
@@ -178,6 +190,7 @@ class UpdateProcessor:
         self.store.complete(update['update_id'])
 
     def process_pending(self) -> None:
+        self._collect_deliveries()
         self._collect_answers()
         for update in self.store.pending_updates():
             if self.questions is not None and update['update_id'] in self.questions.jobs:
@@ -225,7 +238,73 @@ class UpdateProcessor:
                 self.bot._tg = real_transport
                 self.bot._answer_question = answer_question
 
+    def _prepare_delivery(self, reply):
+        from .i18n import t
+        import json
+        payload = reply['payload']
+        tokens = self._preview_tokens(payload)
+        if any(not self.bot._db.delete_preview_valid(token, reply['user_id'], payload['chat_id']) for token in tokens):
+            payload = {'chat_id': payload['chat_id'], 'text': t(self.bot._db.get_language(reply['user_id']) or 'id', 'delete_clarify')}
+            with self.bot._db.atomic():
+                self.bot._db._conn.execute('UPDATE reply_outbox SET payload=? WHERE id=?', (json.dumps(payload), reply['id']))
+            reply = dict(reply, payload=payload)
+        return reply
+
+    @staticmethod
+    def _preview_tokens(payload):
+        return [button['callback_data'][5:] for row in payload.get('reply_markup', {}).get('inline_keyboard', [])
+                for button in row if button.get('callback_data', '').startswith('dyes:')]
+
+    def _finish_delivery(self, reply, result, error):
+        from .i18n import t
+        with self.bot._db.atomic():
+            row = self.bot._db._conn.execute('SELECT status FROM reply_outbox WHERE id=?', (reply['id'],)).fetchone()
+            if row is None or row[0] != 'pending':
+                return
+            if reply['method'] == 'sendMessage' and error:
+                self.store.fail_reply(reply['id'], error)
+                return
+            payload = reply['payload']
+            invalid = False
+            for token in self._preview_tokens(payload):
+                message = result.get('result') if isinstance(result, dict) else None
+                message_id = message.get('message_id') if isinstance(message, dict) else None
+                if not self.bot._db.bind_delete_confirmation(token, reply['user_id'], payload['chat_id'], message_id):
+                    invalid = True
+                    self.bot._db._conn.execute("UPDATE deletion_confirmations SET state='invalid' WHERE token=? AND state='pending'", (token,))
+            if invalid:
+                ordinal = self.bot._db._conn.execute('SELECT COALESCE(MAX(ordinal),0)+1 FROM reply_outbox WHERE update_id=?', (reply['update_id'],)).fetchone()[0]
+                self.store.enqueue(reply['update_id'], ordinal, 'sendMessage',
+                                   {'chat_id': payload['chat_id'], 'text': t(self.bot._db.get_language(reply['user_id']) or 'id', 'delete_clarify')}, reply['user_id'])
+            self.store.sent(reply['id'])
+
+    def _collect_deliveries(self):
+        if self.outbound is None or self.stopping.is_set():
+            return
+        # Retain completed results and reservations if the local commit fails.
+        if not hasattr(self, '_delivery_results'):
+            self._delivery_results = {}
+        for reply, result, error_class in self.outbound.completed():
+            self._delivery_results[reply['id']] = (reply, result, error_class)
+        for row_id, (reply, result, error_class) in list(self._delivery_results.items()):
+            error = type(error_class, (Exception,), {})() if error_class else None
+            try:
+                self._finish_delivery(reply, result, error)
+            except Exception as exc:
+                logger.warning('event=telegram.outbound.collect_failed error_class=%s', type(exc).__name__)
+                continue
+            self.outbound.acknowledge(row_id)
+            del self._delivery_results[row_id]
+
     def deliver_pending(self, *, stop_event=None) -> None:
+        if self.stopping.is_set() or (stop_event is not None and stop_event.is_set()):
+            return
+        if self.outbound is not None:
+            self._collect_deliveries()
+            for reply in self.store.pending_replies(limit=None):
+                if self.outbound.available(reply):
+                    self.outbound.submit(self._prepare_delivery(reply))
+            return
         # Refresh eligibility after each pass so successor ordinals do not wait
         # for another network poll. Bound both passes and wall-clock scheduling.
         import time
@@ -245,48 +324,18 @@ class UpdateProcessor:
         for reply in replies:
             if (stop_event is not None and stop_event.is_set()) or time.monotonic() >= deadline:
                 break
-            payload = reply['payload']
             try:
+                reply = self._prepare_delivery(reply)
                 if reply['method'] == 'sendMessage':
-                    from .i18n import t
-                    tokens = [button.get('callback_data', '')[5:]
-                              for row in payload.get('reply_markup', {}).get('inline_keyboard', [])
-                              for button in row if button.get('callback_data', '').startswith('dyes:')]
-                    lang = self.bot._db.get_language(reply['user_id']) or 'id'
-                    if any(not self.bot._db.delete_preview_valid(token, reply['user_id'], payload['chat_id'])
-                           for token in tokens):
-                        payload = {'chat_id': payload['chat_id'], 'text': t(lang, 'delete_clarify')}
-                        # Persist replacement before network I/O so retries cannot revive a stale preview.
-                        import json
-                        with self.bot._db.atomic():
-                            self.bot._db._conn.execute('UPDATE reply_outbox SET payload=? WHERE id=?',
-                                                       (json.dumps(payload), reply['id']))
-                    result = self.bot._tg.send_message(**payload)
+                    result = self.transport.send_message(**reply['payload'])
                     if not result.get('ok'):
                         raise RuntimeError('Telegram rejected response')
-                    message_id = result.get('result', {}).get('message_id')
-                    with self.bot._db.atomic():
-                        for row in payload.get('reply_markup', {}).get('inline_keyboard', []):
-                            for button in row:
-                                data = button.get('callback_data', '')
-                                if data.startswith('dyes:') and message_id is not None:
-                                    bound = self.bot._db.bind_delete_confirmation(data[5:], reply['user_id'], payload['chat_id'], message_id)
-                                    if not bound:
-                                        ordinal = self.bot._db._conn.execute(
-                                            'SELECT COALESCE(MAX(ordinal),0)+1 FROM reply_outbox WHERE update_id=?',
-                                            (reply['update_id'],),
-                                        ).fetchone()[0]
-                                        self.store.enqueue(reply['update_id'], ordinal, 'sendMessage',
-                                                           {'chat_id': payload['chat_id'], 'text': t(lang, 'delete_clarify')},
-                                                           reply['user_id'])
-                        self.store.sent(reply['id'])
                 else:
-                    # Callback acknowledgement is best-effort and cannot gate writes.
                     try:
-                        self.bot._tg.answer_callback_query(**payload)
+                        result = self.transport.answer_callback_query(**reply['payload'])
                     except Exception:
-                        pass
-                    self.store.sent(reply['id'])
+                        result = None
+                self._finish_delivery(reply, result, None)
             except Exception as exc:
                 self.store.fail_reply(reply['id'], exc)
                 logger.warning('reply delivery failed: %s', type(exc).__name__)

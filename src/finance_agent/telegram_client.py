@@ -34,9 +34,10 @@ class TelegramClient:
              for k, v in params.items() if v is not None}
         ).encode()
         req = urllib.request.Request(url, data=data, method="POST")
-        # getUpdates uses the long-poll timeout; other calls return immediately. A
-        # generous read timeout (long-poll + margin) covers both cases.
-        with urllib.request.urlopen(req, timeout=self._timeout + 15) as resp:
+        # Callback acknowledgement is best-effort on its own short lane. Keep
+        # the historical send deadline: shortening it increases ambiguous sends.
+        timeout = 3 if method == 'answerCallbackQuery' else self._timeout + 15
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode())
 
     def get_me(self) -> dict[str, Any]:

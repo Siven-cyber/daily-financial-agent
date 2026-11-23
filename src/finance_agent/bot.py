@@ -389,14 +389,18 @@ class FinanceBot:
         previous = getattr(self, '_poller', None)
         if previous is not None and previous.thread.is_alive():
             raise RuntimeError('previous Telegram poll is still stopping')
+        outbound = getattr(self, '_outbound', None)
+        if outbound is not None and any(thread.is_alive() for thread in outbound.threads):
+            raise RuntimeError('previous Telegram outbound worker is still stopping')
         try:
             me = self._tg.get_me()
             username = me.get("result", {}).get("username", "?")
             logger.info("bot online as @%s", username)
             from .processing import UpdateProcessor
-            processor = UpdateProcessor(self, async_questions=True)
+            processor = UpdateProcessor(self, async_questions=True, async_delivery=True)
             poller = None
             try:
+                self._outbound = processor.outbound
                 from .queue_ops import QueueOperations
                 maintenance = QueueOperations(self._db)
                 next_cleanup = 0.0

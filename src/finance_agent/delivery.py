@@ -96,9 +96,9 @@ class DeliveryStore:
         """Caller must hold the same transaction as the financial mutation."""
         self.db._conn.execute('INSERT OR IGNORE INTO reply_outbox(update_id,ordinal,method,payload,user_id,created_at) VALUES (?,?,?,?,?,?)', (update_id, ordinal, method, json.dumps(payload), user_id, time.time()))
 
-    def pending_replies(self, limit: int = 100) -> list[dict]:
+    def pending_replies(self, limit: int | None = 100) -> list[dict]:
         with self.db.atomic():
-            rows = self.db._conn.execute("SELECT r.* FROM reply_outbox r WHERE r.status='pending' AND r.next_attempt_at<=? AND NOT EXISTS (SELECT 1 FROM reply_outbox older WHERE older.update_id=r.update_id AND older.ordinal<r.ordinal AND older.status IN ('pending','failed')) ORDER BY r.id LIMIT ?", (time.time(), limit)).fetchall()
+            rows = self.db._conn.execute("SELECT r.* FROM reply_outbox r WHERE r.status='pending' AND r.next_attempt_at<=? AND NOT EXISTS (SELECT 1 FROM reply_outbox older WHERE older.update_id=r.update_id AND older.ordinal<r.ordinal AND older.method!='answerCallbackQuery' AND older.status IN ('pending','failed')) ORDER BY r.id LIMIT ?", (time.time(), -1 if limit is None else limit)).fetchall()
             return [dict(r) | {'payload': json.loads(r['payload'])} for r in rows]
 
     def sent(self, reply_id: int) -> None:

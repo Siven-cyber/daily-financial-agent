@@ -31,9 +31,11 @@ class ConfirmationMixin:
                         and snapshot(self._conn, user_id, row['seq']) == row['snapshot'])
 
     def bind_delete_confirmation(self: Any, token: str, user_id: int, chat_id: int, message_id: int) -> bool:
-        if type(message_id) is not int:
+        if type(message_id) is not int or message_id <= 0:
             return False
         with self.atomic():
+            if not self.delete_preview_valid(token, user_id, chat_id):
+                return False
             cur = self._conn.execute("UPDATE deletion_confirmations SET message_id=? WHERE token=? AND user_id=? AND chat_id=? AND message_id IS NULL AND state='pending' AND expires_at>?", (message_id, token, user_id, chat_id, time.time()))
             return cur.rowcount == 1
 

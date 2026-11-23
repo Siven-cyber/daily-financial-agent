@@ -20,20 +20,42 @@ follow the setup instructions below.
 
 ## Polling and reply responsiveness
 
-A single background worker receives Telegram updates while the main thread owns
-SQLite, financial processing and reply delivery. Each batch is persisted before
-the next polling offset is acknowledged. Ordered reply chunks and callback replies
-are serviced without waiting for another long poll; receipt failures retain the
-same unacknowledged batch for retry. Scheduling waits are 50 ms, not an end-to-end
-latency guarantee: synchronous sends, provider inference and database work can
-still block their respective paths. Payload-free processing/delivery duration
-metrics are emitted at DEBUG level.
+A background poller receives Telegram updates; the main thread alone owns SQLite,
+financial processing, preview validation and atomic delivery-result acknowledgement.
+Each batch is persisted before the next polling offset is acknowledged. Receipt
+failures retain the same unacknowledged batch for retry.
 
-Shutdown requests stop future polls and use a bounded join. An in-flight urllib
-request is not forcibly cancelled; the daemon poller has no database access.
-Existing model cleanup and transport calls can exceed a process manager's grace
-period. Financial mutations remain deduplicated, while Telegram transport retains
-its remote-accept/local-ack duplicate-message window.
+The active bot dispatches network-only sends to two bounded daemon slots, with at
+most one send per owner in flight. A third independent slot acknowledges callbacks
+best-effort; a stalled acknowledgement cannot gate text. Workers capture the real
+transport before reply collectors are installed, never access SQLite, and retain
+slot/row reservations until main-thread result commit. Send ordinals within an
+update still wait for earlier pending/failed sends, including retry backoff; only
+callback predecessors are ignored. Existing cross-update retry semantics are
+unchanged: a backoff reply does not prevent another update's reply overtaking it.
+The eligible scan skips busy owners beyond the first 100 rows (large backlogs can
+still cost main-thread SQL/materialization time). Explicit legacy processors retain
+synchronous delivery unless async delivery is requested.
+
+Deletion previews are revalidated immediately before available dispatch and again
+when binding the delivered message on the main thread. Expiry, changed/deleted
+targets, or an unusable message ID fail closed with durable clarification, never
+renewed authority. A stale button may remain visible remotely but cannot authorize
+a deletion. Results are collected before processing new callbacks.
+
+Scheduling waits are 50 ms, not an end-to-end latency guarantee. INFO outbound
+metrics contain only method, duration, queue wait from outbox created_at (unknown
+for legacy NULL), outcome and error class; no content, chat or capability values.
+The callback socket timeout is 3 seconds, independent of long polling. Send timeouts
+are deliberately unchanged to avoid increasing ambiguous-send duplicates.
+
+Shutdown stops future dispatch and bounds outbound-worker joins to 200 ms total.
+In-flight urllib calls cannot be forcibly cancelled and may finish after local
+shutdown; daemon workers never mutate the closed database. Poller/model cleanup
+can still exceed a process manager's grace period (its configuration is unchanged).
+Financial mutations remain deduplicated; remote acceptance before local result
+commit/crash or shutdown retains an at-least-once duplicate-message window.
+This change does not alter the AI queue or establish real Telegram latency.
 
 ## Read-only queue health check
 
