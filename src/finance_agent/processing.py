@@ -136,7 +136,6 @@ class UpdateProcessor:
 
     def _submit_record(self, update, record):
         from .interpretation import interpret
-        from .i18n import t
         chat_id, user_id, lang, text, currency = record.args_to_call
         def compute():
             proposal = None
@@ -155,13 +154,24 @@ class UpdateProcessor:
         if self.questions is None:
             _, _, _, answer = compute()
             self._complete_record(update['update_id'], chat_id, user_id, lang, answer['proposal'])
-        elif self.questions.submit(update['update_id'], compute):
-            with self.bot._db.atomic():
-                self.store.enqueue(update['update_id'], 0, 'sendMessage', {'chat_id': chat_id, 'text': t(lang, 'processing')}, user_id)
+        else:
+            self._queue_processing(update['update_id'], chat_id, user_id, lang)
+            self.questions.submit(update['update_id'], compute)
+
+    def _queue_processing(self, update_id, chat_id, user_id, lang):
+        from .i18n import t
+        # Ordinal zero is a durable once-per-update notice, including after send.
+        with self.bot._db.atomic():
+            self.store.enqueue(update_id, 0, 'sendMessage',
+                               {'chat_id': chat_id, 'text': t(lang, 'processing')}, user_id)
 
     def _submit_question(self, update: dict, question: DeferredQuestion) -> None:
-        from .i18n import t
         chat_id, user_id, lang, text = question.args_to_call
+        self._queue_processing(update['update_id'], chat_id, user_id, lang)
+        assert self.questions is not None
+        # Admission is main-thread-only; keep DB snapshot work off full queues.
+        if len(self.questions.jobs) >= self.questions.capacity:
+            return
         context = self.bot._service.summary_context(user_id)
         def compute():
             try:
@@ -174,10 +184,7 @@ class UpdateProcessor:
             except Exception:
                 answer = None
             return chat_id, user_id, lang, answer or None
-        assert self.questions is not None
-        if self.questions.submit(update['update_id'], compute):
-            with self.bot._db.atomic():
-                self.store.enqueue(update['update_id'], 0, 'sendMessage', {'chat_id': chat_id, 'text': t(lang, 'processing')}, user_id)
+        self.questions.submit(update['update_id'], compute)
 
     def receive(self, updates: list[dict]) -> None:
         self.store.receive(updates)

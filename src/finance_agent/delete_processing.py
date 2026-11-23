@@ -97,10 +97,9 @@ def submit(processor, update, request):
                                        'snapshot': snapshot, 'reference': reference}
     if processor.questions is None:
         complete(processor, update['update_id'], *compute())
-    elif processor.questions.submit(update['update_id'], compute):
-        with processor.bot._db.atomic():
-            processor.store.enqueue(update['update_id'], 0, 'sendMessage',
-                                    {'chat_id': chat_id, 'text': t(lang, 'processing')}, user_id)
+    else:
+        processor._queue_processing(update['update_id'], chat_id, user_id, lang)
+        processor.questions.submit(update['update_id'], compute)
 
 
 def complete(processor, update_id, chat_id, user_id, lang, answer):
