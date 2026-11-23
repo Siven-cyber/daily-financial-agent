@@ -94,6 +94,20 @@ class DeliveryStore:
 
     def enqueue(self, update_id: int, ordinal: int, method: str, payload: dict, user_id: int) -> None:
         """Caller must hold the same transaction as the financial mutation."""
+        if method == 'sendMessage' and 'reply_parameters' not in payload:
+            # Resolve only the authenticated incoming user message, never a
+            # callback's bot-authored message or the latest chat input. Persist
+            # the binding in the outbox before complete() clears the inbox.
+            row = self.db._conn.execute('SELECT payload FROM inbox_updates WHERE update_id=?', (update_id,)).fetchone()
+            message = json.loads(row[0]).get('message', {}) if row else {}
+            message_id = message.get('message_id')
+            if (type(message_id) is int and message_id > 0
+                    and message.get('from', {}).get('id') == user_id
+                    and message.get('chat', {}).get('type') == 'private'
+                    and message.get('chat', {}).get('id') == payload.get('chat_id')):
+                payload = dict(payload, reply_parameters={
+                    'message_id': message_id, 'allow_sending_without_reply': True,
+                })
         self.db._conn.execute('INSERT OR IGNORE INTO reply_outbox(update_id,ordinal,method,payload,user_id,created_at) VALUES (?,?,?,?,?,?)', (update_id, ordinal, method, json.dumps(payload), user_id, time.time()))
 
     def pending_replies(self, limit: int | None = 100) -> list[dict]:

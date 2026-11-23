@@ -50,6 +50,7 @@ class TelegramClient:
         *,
         reply_markup: Optional[dict] = None,
         parse_mode: Optional[str] = None,
+        reply_parameters: Optional[dict] = None,
     ) -> dict[str, Any]:
         return self._call(
             "sendMessage",
@@ -58,6 +59,7 @@ class TelegramClient:
                 "text": text,
                 "reply_markup": reply_markup,
                 "parse_mode": parse_mode,
+                "reply_parameters": reply_parameters,
             },
         )
 

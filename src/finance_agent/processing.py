@@ -251,7 +251,8 @@ class UpdateProcessor:
         payload = reply['payload']
         tokens = self._preview_tokens(payload)
         if any(not self.bot._db.delete_preview_valid(token, reply['user_id'], payload['chat_id']) for token in tokens):
-            payload = {'chat_id': payload['chat_id'], 'text': t(self.bot._db.get_language(reply['user_id']) or 'id', 'delete_clarify')}
+            payload = {key: value for key, value in payload.items() if key in ('chat_id', 'reply_parameters')}
+            payload['text'] = t(self.bot._db.get_language(reply['user_id']) or 'id', 'delete_clarify')
             with self.bot._db.atomic():
                 self.bot._db._conn.execute('UPDATE reply_outbox SET payload=? WHERE id=?', (json.dumps(payload), reply['id']))
             reply = dict(reply, payload=payload)
@@ -282,7 +283,8 @@ class UpdateProcessor:
             if invalid:
                 ordinal = self.bot._db._conn.execute('SELECT COALESCE(MAX(ordinal),0)+1 FROM reply_outbox WHERE update_id=?', (reply['update_id'],)).fetchone()[0]
                 self.store.enqueue(reply['update_id'], ordinal, 'sendMessage',
-                                   {'chat_id': payload['chat_id'], 'text': t(self.bot._db.get_language(reply['user_id']) or 'id', 'delete_clarify')}, reply['user_id'])
+                                   {**{key: value for key, value in payload.items() if key in ('chat_id', 'reply_parameters')},
+                                    'text': t(self.bot._db.get_language(reply['user_id']) or 'id', 'delete_clarify')}, reply['user_id'])
             self.store.sent(reply['id'])
 
     def _collect_deliveries(self):

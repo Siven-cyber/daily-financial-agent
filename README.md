@@ -37,6 +37,14 @@ The eligible scan skips busy owners beyond the first 100 rows (large backlogs ca
 still cost main-thread SQL/materialization time). Explicit legacy processors retain
 synchronous delivery unless async delivery is requested.
 
+Replies to private user messages carry the original incoming `message_id` in
+Telegram `reply_parameters`, including processing notices, delayed AI answers,
+summary/recent commentary and split chunks. The durable outbox keeps that binding
+across delivery retries and restarts, even after the inbox payload is cleared.
+`allow_sending_without_reply=true` permits delivery if the original was deleted.
+Callback-origin replies do not infer an origin from the bot's button message;
+inputs without an explicit valid message ID remain unthreaded.
+
 Deletion previews are revalidated immediately before available dispatch and again
 when binding the delivered message on the main thread. Expiry, changed/deleted
 targets, or an unusable message ID fail closed with durable clarification, never
