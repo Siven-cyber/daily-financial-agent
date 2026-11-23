@@ -225,8 +225,26 @@ class UpdateProcessor:
                 self.bot._tg = real_transport
                 self.bot._answer_question = answer_question
 
-    def deliver_pending(self) -> None:
-        for reply in self.store.pending_replies():
+    def deliver_pending(self, *, stop_event=None) -> None:
+        # Refresh eligibility after each pass so successor ordinals do not wait
+        # for another network poll. Bound both passes and wall-clock scheduling.
+        import time
+        deadline = time.monotonic() + 0.05
+        for _ in range(8):
+            if stop_event is not None and stop_event.is_set():
+                break
+            replies = self.store.pending_replies()
+            if not replies:
+                break
+            self._deliver_replies(replies, stop_event=stop_event, deadline=deadline)
+            if time.monotonic() >= deadline:
+                break
+
+    def _deliver_replies(self, replies, *, stop_event, deadline) -> None:
+        import time
+        for reply in replies:
+            if (stop_event is not None and stop_event.is_set()) or time.monotonic() >= deadline:
+                break
             payload = reply['payload']
             try:
                 if reply['method'] == 'sendMessage':

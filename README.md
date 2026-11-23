@@ -18,6 +18,23 @@ messages. Use synthetic examples when trying the demo; do not send credentials o
 sensitive financial information. To evaluate with your own isolated state and bot,
 follow the setup instructions below.
 
+## Polling and reply responsiveness
+
+A single background worker receives Telegram updates while the main thread owns
+SQLite, financial processing and reply delivery. Each batch is persisted before
+the next polling offset is acknowledged. Ordered reply chunks and callback replies
+are serviced without waiting for another long poll; receipt failures retain the
+same unacknowledged batch for retry. Scheduling waits are 50 ms, not an end-to-end
+latency guarantee: synchronous sends, provider inference and database work can
+still block their respective paths. Payload-free processing/delivery duration
+metrics are emitted at DEBUG level.
+
+Shutdown requests stop future polls and use a bounded join. An in-flight urllib
+request is not forcibly cancelled; the daemon poller has no database access.
+Existing model cleanup and transport calls can exceed a process manager's grace
+period. Financial mutations remain deduplicated, while Telegram transport retains
+its remote-accept/local-ack duplicate-message window.
+
 ## Read-only queue health check
 
 Run with the project interpreter and an explicit existing database path:

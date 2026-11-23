@@ -380,31 +380,71 @@ class FinanceBot:
 
     # ----- main loop -------------------------------------------------------
 
-    def run(self) -> None:
+    def run(self, *, stop_event=None) -> None:
+        import queue
+        import threading
+        from .polling import PollingWorker
+        stop_event = stop_event if stop_event is not None else threading.Event()
+        # Refuse a same-object restart until its prior blocked network call exits.
+        previous = getattr(self, '_poller', None)
+        if previous is not None and previous.thread.is_alive():
+            raise RuntimeError('previous Telegram poll is still stopping')
         try:
             me = self._tg.get_me()
             username = me.get("result", {}).get("username", "?")
             logger.info("bot online as @%s", username)
             from .processing import UpdateProcessor
             processor = UpdateProcessor(self, async_questions=True)
-            from .queue_ops import QueueOperations
-            maintenance = QueueOperations(self._db)
-            next_cleanup = 0.0
+            poller = None
             try:
-                while True:
+                from .queue_ops import QueueOperations
+                maintenance = QueueOperations(self._db)
+                next_cleanup = 0.0
+                transport = self._tg
+                poller = self._poller = PollingWorker(transport)
+                poller.start(transport, processor.store.offset())
+                receipt_batch = None
+                receipt_retry_at = 0.0
+                while not stop_event.is_set():
                     if time.monotonic() >= next_cleanup:
                         maintenance.cleanup()
                         next_cleanup = time.monotonic() + 60
-                    # Resume durable work even when polling is temporarily unavailable.
+                    if receipt_batch is None:
+                        try:
+                            receipt_batch = self._poller.results.get_nowait()
+                        except queue.Empty:
+                            pass
+                    if receipt_batch is not None and time.monotonic() >= receipt_retry_at:
+                        try:
+                            processor.receive(receipt_batch)
+                            offset = processor.store.offset()
+                        except Exception as exc:
+                            # Keep exactly this batch; no acknowledgement until both
+                            # durable receipt and reading its committed offset succeed.
+                            logger.warning('receipt failed: %s', type(exc).__name__)
+                            receipt_retry_at = time.monotonic() + 2
+                        else:
+                            receipt_batch = None
+                            if not stop_event.is_set():
+                                self._poller.requests.put_nowait(offset)
+                    if not self._poller.thread.is_alive():
+                        raise RuntimeError('Telegram polling worker stopped unexpectedly')
+                    # Resume durable work even during a poll or retry backoff.
+                    started = time.monotonic()
                     processor.process_pending()
-                    processor.deliver_pending()
-                    try:
-                        processor.receive(self._tg.fetch_updates(offset=processor.store.offset()))
-                    except Exception as exc:
-                        logger.warning("polling failed: %s", type(exc).__name__)
-                        time.sleep(2)
+                    logger.debug('event=bot.processing.completed elapsed_ms=%d',
+                                 round((time.monotonic() - started) * 1000))
+                    started = time.monotonic()
+                    processor.deliver_pending(stop_event=stop_event)
+                    logger.debug('event=bot.delivery.completed elapsed_ms=%d',
+                                 round((time.monotonic() - started) * 1000))
+                    stop_event.wait(0.05)
             finally:
-                processor.close()
+                try:
+                    if poller is not None:
+                        poller.close()
+                finally:
+                    processor.close()
         finally:
             self._db.close()
 
@@ -417,8 +457,20 @@ def main() -> int:
     config = load_config()
     if not config.telegram_bot_token:
         raise SystemExit("TELEGRAM_BOT_TOKEN is not set (see .env.example)")
-    bot = FinanceBot(config)
-    bot.run()
+    import signal
+    import threading
+    stopping = threading.Event()
+    previous = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
+    def request_stop(signum, frame):
+        stopping.set()
+    try:
+        for sig in previous:
+            signal.signal(sig, request_stop)
+        bot = FinanceBot(config)
+        bot.run(stop_event=stopping)
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
     return 0
 
 
