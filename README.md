@@ -109,6 +109,35 @@ This optional CLI installs no schedule, performs no migrations or queue mutation
 and leaves existing foreground/pending scheduled modules and launchers unchanged.
 Source and synthetic fake-transport tests do not establish live alert delivery.
 
+## Optional commentary pending-age alerts (standalone, opt-in)
+
+Inspect pending summary/recent commentary independently of failed-job alerts:
+
+    PYTHONPATH=src .venv/bin/python -m finance_agent.commentary_pending_cli --db /absolute/path/finance.db --threshold-seconds 900
+
+The default is read-only dry-run, without state/lock writes or network calls.
+Age uses the original inbox receipt time as an explicit proxy, which may
+overestimate commentary age; no creation timestamp is fabricated. The inclusive
+threshold defaults to 900 seconds. Aggregate fields distinguish old ready work,
+old work waiting for retry, and unknown age (missing, invalid or future receipt
+times). Done/failed jobs are excluded. Attention is not proof of a stalled worker.
+
+Explicit delivery additionally requires `--notify --state /private/monitor/commentary-pending.json`
+and `FINANCE_MONITOR_BOT_TOKEN` plus `FINANCE_MONITOR_CHAT_ID`. Use a new state path
+in a trusted private existing directory. Never reuse any other monitor's state.
+State binds `kind=commentary_pending_v1`, canonical database and threshold.
+Changing the threshold requires a separately reviewed state path/reset.
+
+Only count/class changes send an alert, not continuously increasing age. A
+recovery follows only a successfully acknowledged attention alert. Inspection
+errors or unavailable/legacy schemas do not clear state or imply recovery.
+Failed delivery leaves state unchanged for retry. As with the failure monitor,
+remote acceptance before local acknowledgement can duplicate a notification.
+Only operational aggregates and exception classes are exposed, never snapshots,
+user identities or raw errors. Exit codes: 0 healthy, 1 attention, 2 configuration,
+state, inspection or delivery error. No queue mutation, migration, scheduler or
+production activation is included. Existing monitors remain unchanged.
+
 ## Read-only queue health check
 
 Run with the project interpreter and an explicit existing database path:
